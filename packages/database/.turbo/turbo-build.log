@@ -1,0 +1,14 @@
+
+
+> @hackanomics/database@1.0.0 build
+> prisma generate
+
+[2mPrisma schema loaded from prisma/schema.prisma[22m
+
+✔ Generated [1mPrisma Client[22m (v5.22.0)[2m to ./../../node_modules/@prisma/client[22m in 116ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Interested in query caching in just a few lines of code? Try Accelerate today! https://pris.ly/tip-3-accelerate
+
+⠙[1G[0K

@@ -1,0 +1,7 @@
+{
+  "extends": "@hackanomics/config/tsconfig.nextjs.json",
+  "compilerOptions": {
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}

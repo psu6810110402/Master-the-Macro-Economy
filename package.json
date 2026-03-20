@@ -1,0 +1,25 @@
+{
+  "name": "hackanomics",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build:turbo": "turbo build",
+    "dev:turbo": "turbo dev",
+    "lint:turbo": "turbo lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "db:generate": "turbo run db:generate",
+    "db:push": "turbo run db:push"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "prettier": "^3.2.5",
+    "turbo": "latest"
+  },
+  "packageManager": "npm@10.8.2",
+  "dependencies": {
+    "tailwind": "^4.0.0"
+  }
+}

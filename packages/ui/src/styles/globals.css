@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Bloomberg-Editorial: High-Impact Financial Aesthetics */
+    --bg-primary: 12% 0.03 260;    /* Deep Carbon Navy */
+    --bg-secondary: 18% 0.04 260;  /* Slate Blue Depth */
+    --bg-tertiary: 24% 0.05 260;
+
+    --text-primary: 98% 0.01 260;  /* Tinted White — never pure #fff */
+    --text-secondary: 85% 0.02 260;
+    --text-muted: 55% 0.05 260;
+
+    /* Pulse of the Market */
+    --accent-up: 78% 0.22 145;     /* Acid Green */
+    --accent-down: 62% 0.25 25;    /* Cyber Red */
+    --accent-brand: 72% 0.18 275;  /* Electric Indigo */
+    
+    --border-subtle: 20% 0.05 260;
+    --border-focus: 72% 0.18 275;
+
+    /* Typographic Hierarchy */
+    --font-heading: var(--font-outfit);
+    --font-body: var(--font-murecho);
+
+    /* Motion: Exponential Easing — natural deceleration */
+    --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+    --ease-out-expo:  cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out:    cubic-bezier(0.65, 0, 0.35, 1);
+
+    /* Duration Tokens */
+    --dur-instant: 100ms;
+    --dur-fast:    200ms;
+    --dur-normal:  300ms;
+    --dur-slow:    500ms;
+  }
+}
+
+/* ─── TYPOGRAPHY ─────────────────────────────── */
+
+h1, h2, h3, h4, .font-display {
+  font-family: var(--font-heading);
+  letter-spacing: -0.03em;
+  font-weight: 700;
+}
+
+body {
+  background-color: oklch(var(--bg-primary));
+  color: oklch(var(--text-primary));
+  font-family: var(--font-murecho), sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── FLUID TYPOGRAPHY ───────────────────────── */
+
+.text-fluid-h1 { font-size: clamp(2.5rem, 5vw, 4rem); line-height: 1.1; letter-spacing: -0.02em; }
+.text-fluid-h2 { font-size: clamp(2rem, 4vw, 3rem); line-height: 1.15; letter-spacing: -0.01em; }
+.text-fluid-h3 { font-size: clamp(1.5rem, 3vw, 2.25rem); line-height: 1.2; }
+
+/* ─── INTERACTION STATES ─────────────────────── */
+
+.hov-scale {
+  transition: transform var(--dur-fast) var(--ease-out-quart),
+              opacity var(--dur-fast) var(--ease-out-quart);
+}
+.hov-scale:hover  { transform: scale(1.02); }
+.hov-scale:active { transform: scale(0.97); }
+
+/* ─── CUSTOM SCROLLBAR ───────────────────────── */
+
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: oklch(var(--border-subtle));
+  border-radius: 2px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: oklch(var(--text-muted));
+}
+
+/* ─── FOCUS VISIBLE ──────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid oklch(var(--border-focus));
+  outline-offset: 2px;
+}
+
+/* ─── SELECTION ──────────────────────────────── */
+
+::selection {
+  background: oklch(var(--accent-brand) / 0.3);
+  color: oklch(var(--text-primary));
+}
+
+/* ─── TABULAR NUMBERS ────────────────────────── */
+
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* ─── REDUCED MOTION ─────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

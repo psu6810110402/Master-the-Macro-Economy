@@ -1,0 +1,217 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// ─── MODELS ──────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(uuid())
+  supabaseId    String    @unique  // Links to Supabase Auth user
+  email         String    @unique  // Encrypted at rest via Supabase Vault
+  displayName   String
+  role          String      @default("PLAYER")
+  passwordHash  String?
+  refreshToken  String?
+  mfaSecret     String?
+  mfaEnabled    Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  portfolios    Portfolio[]
+  sessionPlayers SessionPlayer[]
+  auditLogs     AuditLog[]       @relation("ActorLogs")
+
+  @@index([supabaseId])
+  @@index([email])
+  @@map("users")
+}
+
+model GameSession {
+  id            String        @id @default(uuid())
+  code          String        @unique  // 6-char join code e.g. "ABC123"
+  name          String
+  status        String        @default("WAITING") // WAITING, ACTIVE, NEWS_BREAK, PAUSED, COMPLETED
+  scenarioId    String        @default("TECH_CRISIS") // Links to engine/src/market.ts SCENARIOS
+  facilitatorId String
+  maxPlayers    Int           @default(20)
+  roundNumber   Int           @default(0)
+  startedAt     DateTime?
+  endedAt     DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relations
+  players       SessionPlayer[]
+  rounds        Round[]
+  marketEvents  MarketEvent[]
+
+  @@index([code])
+  @@index([status])
+  @@map("game_sessions")
+}
+
+model SessionPlayer {
+  id          String      @id @default(uuid())
+  sessionId   String
+  userId      String
+  joinedAt    DateTime    @default(now())
+  isActive    Boolean     @default(true)  // false = disconnected
+
+  // Relations
+  session     GameSession @relation(fields: [sessionId], references: [id])
+  user        User        @relation(fields: [userId], references: [id])
+  portfolio   Portfolio?
+
+  @@unique([sessionId, userId])
+  @@map("session_players")
+}
+
+model Round {
+  id          String      @id @default(uuid())
+  sessionId   String
+  roundNumber Int
+  startedAt   DateTime    @default(now())
+  endedAt     DateTime?
+  priceSnapshot String      // SQLite doesn't have Json, using stringified JSON
+
+  // Relations
+  session     GameSession @relation(fields: [sessionId], references: [id])
+  trades      Trade[]
+  portfolios  Portfolio[]
+
+  @@unique([sessionId, roundNumber])
+  @@map("rounds")
+}
+
+model Portfolio {
+  id              String        @id @default(uuid())
+  userId          String
+  sessionPlayerId String?       @unique
+  roundId         String?
+  cashBalance     Float         @default(100000)  // Starting capital
+  totalValue      Float?        // Calculated at round end
+  returnPct       Float?        // % return vs starting capital
+  rank            Int?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  user            User          @relation(fields: [userId], references: [id])
+  sessionPlayer   SessionPlayer? @relation(fields: [sessionPlayerId], references: [id])
+  round           Round?        @relation(fields: [roundId], references: [id])
+  holdings        Holding[]
+  trades          Trade[]
+
+  @@index([userId])
+  @@index([roundId])
+  @@map("portfolios")
+}
+
+model Holding {
+  id          String    @id @default(uuid())
+  portfolioId String
+  assetId     String
+  quantity    Float
+  avgCost     Float  // Average cost basis
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id])
+  asset       Asset     @relation(fields: [assetId], references: [id])
+
+  @@unique([portfolioId, assetId])
+  @@map("holdings")
+}
+
+model Asset {
+  id          String    @id @default(uuid())
+  symbol      String    @unique  // e.g. "AAPL", "BTC", "GOLD"
+  name        String
+  type        String
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  // Relations
+  holdings    Holding[]
+  prices      AssetPrice[]
+  trades      Trade[]
+
+  @@map("assets")
+}
+
+model AssetPrice {
+  id          String    @id @default(uuid())
+  assetId     String
+  price       Float
+  sessionId   String?   // Null = real-world baseline price
+  roundNumber Int?
+  recordedAt  DateTime  @default(now())
+
+  // Relations
+  asset       Asset     @relation(fields: [assetId], references: [id])
+
+  @@index([assetId, roundNumber])
+  @@map("asset_prices")
+}
+
+
+model Trade {
+  id          String      @id @default(uuid())
+  portfolioId String
+  assetId     String
+  roundId     String
+  action      String
+  quantity    Float
+  price       Float  // Price at time of trade
+  total       Float  // quantity * price
+  executedAt  DateTime    @default(now())
+
+  // Relations
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id])
+  asset       Asset     @relation(fields: [assetId], references: [id])
+  round       Round     @relation(fields: [roundId], references: [id])
+
+  @@index([portfolioId])
+  @@index([roundId])
+  @@map("trades")
+}
+
+model MarketEvent {
+  id          String      @id @default(uuid())
+  sessionId   String
+  roundNumber Int
+  title       String
+  description String
+  impact      String      // SQLite doesn't have Json, using stringified JSON
+  triggeredAt DateTime    @default(now())
+
+  // Relations
+  session     GameSession @relation(fields: [sessionId], references: [id])
+
+  @@map("market_events")
+}
+
+model AuditLog {
+  id          String      @id @default(uuid())
+  actorId     String?     // Null = system action
+  action      String
+  resource    String      // e.g. "User:abc123", "Session:xyz789"
+  metadata    String?     // SQLite doesn't have Json, using stringified JSON
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime    @default(now())
+
+  // Relations
+  actor       User?       @relation("ActorLogs", fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
