@@ -1,0 +1,66 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { io, Socket } from 'socket.io-client';
+
+export const useSocket = (sessionId?: string) => {
+  const socketRef = useRef<Socket | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [lastEvent, setLastEvent] = useState<{ event: string; data: any } | null>(null);
+
+  useEffect(() => {
+    if (!sessionId) return;
+
+    // In a real app, we'd get the token from a cookie or AuthContext
+    const token = localStorage.getItem('supabase_token'); 
+
+    const socket = io('http://localhost:3001', {
+      auth: { token },
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+    });
+
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      setIsConnected(true);
+      console.log('Connected to Game Gateway');
+      
+      // Request to join the session and handle initial state restoration
+      socket.emit('joinSession', { sessionId }, (response: any) => {
+        if (response?.status === 'ok' && response.state) {
+          setLastEvent({ event: 'initialState', data: response.state });
+        }
+      });
+    });
+
+    socket.on('disconnect', (reason) => {
+      setIsConnected(false);
+      console.warn('Disconnected from Game Gateway:', reason);
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('Connection error:', error);
+    });
+
+    // Central listener for game events
+    const events = ['roundStarted', 'portfolioUpdate', 'marketUpdate', 'tradeAcknowledged', 'leaderboardUpdate'];
+    events.forEach(event => {
+      socket.on(event, (data) => {
+        setLastEvent({ event, data });
+      });
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [sessionId]);
+
+  const emit = (event: string, data: any) => {
+    socketRef.current?.emit(event, data);
+  };
+
+  return { isConnected, lastEvent, emit };
+};
