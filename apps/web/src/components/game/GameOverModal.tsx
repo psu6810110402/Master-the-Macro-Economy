@@ -32,32 +32,11 @@ export default function GameOverModal({ isOpen, rankings, currentUserId, session
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
 
-  // Generate a realistic-looking chart history leading to the final value
-  const chartData = useMemo(() => {
-    if (!myResult) return [];
-    const startValue = 100000;
-    const endValue = myResult.totalValue;
-    const diff = endValue - startValue;
-    
-    // Create 5 rounds of data with some noise
-    return Array.from({ length: 6 }).map((_, i) => {
-      if (i === 0) return { round: 0, value: startValue, cash: startValue };
-      if (i === 5) return { round: 5, value: endValue, cash: 0 };
-      
-      const progress = i / 5;
-      const expectedValue = startValue + (diff * progress);
-      const volatility = 5000 * (Math.random() - 0.5); // Random noise
-      
-      return {
-        round: i,
-        value: Math.round(expectedValue + volatility),
-        cash: 0
-      };
-    });
-  }, [myResult]);
+  const [chartData, setChartData] = useState<any[]>([]);
 
   useEffect(() => {
     if (isOpen && sessionId) {
+      // Fetch AI Analysis
       setIsLoadingAnalysis(true);
       api.get<{ analysis: string }>(`portfolio/${sessionId}/analysis`)
         .then(res => setAnalysis(res.analysis))
@@ -66,8 +45,15 @@ export default function GameOverModal({ isOpen, rankings, currentUserId, session
           setAnalysis('Sector AI is currently offline. No advanced debrief available.');
         })
         .finally(() => setIsLoadingAnalysis(false));
+
+      // Fetch Portfolio History for Chart
+      if (myResult) {
+        api.get<any[]>(`portfolio/${sessionId}/history`)
+          .then(res => setChartData(res))
+          .catch(err => console.error('Failed to load chart history', err));
+      }
     }
-  }, [isOpen, sessionId]);
+  }, [isOpen, sessionId, myResult]);
 
   if (!isOpen) return null;
 

@@ -12,6 +12,83 @@ export class PortfolioService {
 
   constructor(private gameService: GameService) {}
 
+  async getPortfolioHistory(userId: string, sessionId: string) {
+    const sessionPlayer = await prisma.sessionPlayer.findUnique({
+      where: { sessionId_userId: { sessionId, userId } },
+      include: {
+        portfolio: {
+          include: { trades: { include: { asset: true } } },
+        },
+        session: {
+          include: { rounds: true }
+        }
+      },
+    });
+
+    if (!sessionPlayer || !sessionPlayer.portfolio) {
+      throw new NotFoundException('Portfolio not found');
+    }
+
+    const { portfolio, session } = sessionPlayer;
+    const history: Array<{ round: number; value: number; cash: number }> = [];
+    
+    // Round 0: Start of game
+    history.push({ round: 0, value: 100000, cash: 100000 });
+
+    // Track state as we roll forward
+    let currentCash = 100000;
+    const currentHoldings: Record<string, number> = {};
+
+    // Group trades by round
+    const tradesByRound: Record<number, any[]> = {};
+    for (const trade of portfolio.trades) {
+      const roundNum = session.rounds.find(r => r.id === trade.roundId)?.roundNumber;
+      if (roundNum !== undefined) {
+        if (!tradesByRound[roundNum]) tradesByRound[roundNum] = [];
+        tradesByRound[roundNum].push(trade);
+      }
+    }
+
+    // Sort rounds
+    const rounds = [...session.rounds].sort((a, b) => a.roundNumber - b.roundNumber);
+
+    for (const round of rounds) {
+      // Apply trades for this round
+      const roundTrades = tradesByRound[round.roundNumber] || [];
+      for (const t of roundTrades) {
+        if (t.action === 'BUY') {
+          currentCash -= t.total;
+          currentHoldings[t.asset.symbol] = (currentHoldings[t.asset.symbol] || 0) + t.quantity;
+        } else if (t.action === 'SELL') {
+          currentCash += t.total;
+          currentHoldings[t.asset.symbol] = (currentHoldings[t.asset.symbol] || 0) - t.quantity;
+        }
+      }
+
+      // Calculate total holding value using the prices recorded at the end of this round
+      let roundHoldingsValue = 0;
+      if (round.priceSnapshot) {
+        try {
+          const prices = JSON.parse(round.priceSnapshot) as Record<string, number>;
+          for (const [symbol, qty] of Object.entries(currentHoldings)) {
+            const price = prices[symbol] || 0;
+            roundHoldingsValue += qty * price;
+          }
+        } catch (e) {
+          this.logger.error(`Failed to parse priceSnapshot for round ${round.roundNumber}`, e);
+        }
+      }
+
+      history.push({
+        round: round.roundNumber,
+        value: currentCash + roundHoldingsValue,
+        cash: currentCash,
+      });
+    }
+
+    return history;
+  }
+
   async getPortfolio(userId: string, sessionId: string) {
     const sessionPlayer = await prisma.sessionPlayer.findUnique({
       where: {

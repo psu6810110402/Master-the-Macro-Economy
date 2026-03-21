@@ -24,4 +24,13 @@ export class PortfolioController {
   ) {
     return this.portfolioService.generateAnalysis(user.id, sessionId);
   }
+
+  @Get(':sessionId/history')
+  @UseGuards(JwtAuthGuard)
+  async getHistory(
+    @CurrentUser() user: any,
+    @Param('sessionId') sessionId: string,
+  ) {
+    return this.portfolioService.getPortfolioHistory(user.id, sessionId);
+  }
 }
