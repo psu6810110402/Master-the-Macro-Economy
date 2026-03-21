@@ -7,25 +7,21 @@ datasource db {
   url      = "file:./dev.db"
 }
 
-// ─── MODELS ──────────────────────────────────────────────
-
 model User {
-  id            String    @id @default(uuid())
-  supabaseId    String    @unique  // Links to Supabase Auth user
-  email         String    @unique  // Encrypted at rest via Supabase Vault
-  displayName   String
-  role          String      @default("PLAYER")
-  passwordHash  String?
-  refreshToken  String?
-  mfaSecret     String?
-  mfaEnabled    Boolean   @default(false)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  // Relations
-  portfolios    Portfolio[]
+  id             String          @id @default(uuid())
+  supabaseId     String          @unique
+  email          String          @unique
+  displayName    String
+  role           String          @default("PLAYER")
+  mfaEnabled     Boolean         @default(false)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  mfaSecret      String?
+  passwordHash   String?
+  refreshToken   String?
+  auditLogs      AuditLog[]      @relation("ActorLogs")
+  portfolios     Portfolio[]
   sessionPlayers SessionPlayer[]
-  auditLogs     AuditLog[]       @relation("ActorLogs")
 
   @@index([supabaseId])
   @@index([email])
@@ -33,23 +29,22 @@ model User {
 }
 
 model GameSession {
-  id            String        @id @default(uuid())
-  code          String        @unique  // 6-char join code e.g. "ABC123"
+  id            String          @id @default(uuid())
+  code          String          @unique
   name          String
-  status        String        @default("WAITING") // WAITING, ACTIVE, NEWS_BREAK, PAUSED, COMPLETED
-  scenarioId    String        @default("TECH_CRISIS") // Links to engine/src/market.ts SCENARIOS
+  status        String          @default("WAITING")
+  scenarioId    String          @default("TECH_CRISIS")
   facilitatorId String
-  maxPlayers    Int           @default(20)
-  roundNumber   Int           @default(0)
+  maxPlayers    Int             @default(20)
+  roundNumber   Int             @default(0)
   startedAt     DateTime?
-  endedAt     DateTime?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-
-  // Relations
-  players       SessionPlayer[]
-  rounds        Round[]
+  endedAt       DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  macroStates   MacroState[]
   marketEvents  MarketEvent[]
+  rounds        Round[]
+  players       SessionPlayer[]
 
   @@index([code])
   @@index([status])
@@ -57,55 +52,49 @@ model GameSession {
 }
 
 model SessionPlayer {
-  id          String      @id @default(uuid())
-  sessionId   String
-  userId      String
-  joinedAt    DateTime    @default(now())
-  isActive    Boolean     @default(true)  // false = disconnected
-
-  // Relations
-  session     GameSession @relation(fields: [sessionId], references: [id])
-  user        User        @relation(fields: [userId], references: [id])
-  portfolio   Portfolio?
+  id        String      @id @default(uuid())
+  sessionId String
+  userId    String
+  joinedAt  DateTime    @default(now())
+  isActive  Boolean     @default(true)
+  portfolio Portfolio?
+  user      User        @relation(fields: [userId], references: [id])
+  session   GameSession @relation(fields: [sessionId], references: [id])
 
   @@unique([sessionId, userId])
   @@map("session_players")
 }
 
 model Round {
-  id          String      @id @default(uuid())
-  sessionId   String
-  roundNumber Int
-  startedAt   DateTime    @default(now())
-  endedAt     DateTime?
-  priceSnapshot String      // SQLite doesn't have Json, using stringified JSON
-
-  // Relations
-  session     GameSession @relation(fields: [sessionId], references: [id])
-  trades      Trade[]
-  portfolios  Portfolio[]
+  id            String      @id @default(uuid())
+  sessionId     String
+  roundNumber   Int
+  startedAt     DateTime    @default(now())
+  endedAt       DateTime?
+  priceSnapshot String
+  portfolios    Portfolio[]
+  session       GameSession @relation(fields: [sessionId], references: [id])
+  trades        Trade[]
 
   @@unique([sessionId, roundNumber])
   @@map("rounds")
 }
 
 model Portfolio {
-  id              String        @id @default(uuid())
+  id              String         @id @default(uuid())
   userId          String
-  sessionPlayerId String?       @unique
+  sessionPlayerId String?        @unique
   roundId         String?
-  cashBalance     Float         @default(100000)  // Starting capital
-  totalValue      Float?        // Calculated at round end
-  returnPct       Float?        // % return vs starting capital
+  cashBalance     Float          @default(100000)
+  totalValue      Float?
+  returnPct       Float?
   rank            Int?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-
-  // Relations
-  user            User          @relation(fields: [userId], references: [id])
-  sessionPlayer   SessionPlayer? @relation(fields: [sessionPlayerId], references: [id])
-  round           Round?        @relation(fields: [roundId], references: [id])
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
   holdings        Holding[]
+  round           Round?         @relation(fields: [roundId], references: [id])
+  sessionPlayer   SessionPlayer? @relation(fields: [sessionPlayerId], references: [id])
+  user            User           @relation(fields: [userId], references: [id])
   trades          Trade[]
 
   @@index([userId])
@@ -118,64 +107,74 @@ model Holding {
   portfolioId String
   assetId     String
   quantity    Float
-  avgCost     Float  // Average cost basis
+  avgCost     Float
   updatedAt   DateTime  @updatedAt
-
-  // Relations
-  portfolio   Portfolio @relation(fields: [portfolioId], references: [id])
   asset       Asset     @relation(fields: [assetId], references: [id])
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id])
 
   @@unique([portfolioId, assetId])
   @@map("holdings")
 }
 
 model Asset {
-  id          String    @id @default(uuid())
-  symbol      String    @unique  // e.g. "AAPL", "BTC", "GOLD"
-  name        String
-  type        String
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-
-  // Relations
-  holdings    Holding[]
-  prices      AssetPrice[]
-  trades      Trade[]
+  id        String       @id @default(uuid())
+  symbol    String       @unique
+  name      String
+  type      String
+  isActive  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  prices    AssetPrice[]
+  holdings  Holding[]
+  trades    Trade[]
 
   @@map("assets")
 }
 
 model AssetPrice {
-  id          String    @id @default(uuid())
+  id          String   @id @default(uuid())
   assetId     String
   price       Float
-  sessionId   String?   // Null = real-world baseline price
+  delta       Float    @default(0)
+  sessionId   String?
   roundNumber Int?
-  recordedAt  DateTime  @default(now())
-
-  // Relations
-  asset       Asset     @relation(fields: [assetId], references: [id])
+  recordedAt  DateTime @default(now())
+  asset       Asset    @relation(fields: [assetId], references: [id])
 
   @@index([assetId, roundNumber])
   @@map("asset_prices")
 }
 
+model MacroState {
+  id              String      @id @default(uuid())
+  sessionId       String
+  roundNumber     Int
+  interestRate    Float       @default(2.5)
+  inflation       Float       @default(3.0)
+  gdpGrowth       Float       @default(2.8)
+  volatility      Float       @default(0.3)
+  blackSwanActive Boolean     @default(false)
+  blackSwanTier   Int?
+  blackSwanEvent  String?
+  createdAt       DateTime    @default(now())
+  session         GameSession @relation(fields: [sessionId], references: [id])
+
+  @@unique([sessionId, roundNumber])
+  @@map("macro_states")
+}
 
 model Trade {
-  id          String      @id @default(uuid())
+  id          String    @id @default(uuid())
   portfolioId String
   assetId     String
   roundId     String
   action      String
   quantity    Float
-  price       Float  // Price at time of trade
-  total       Float  // quantity * price
-  executedAt  DateTime    @default(now())
-
-  // Relations
-  portfolio   Portfolio @relation(fields: [portfolioId], references: [id])
-  asset       Asset     @relation(fields: [assetId], references: [id])
+  price       Float
+  total       Float
+  executedAt  DateTime  @default(now())
   round       Round     @relation(fields: [roundId], references: [id])
+  asset       Asset     @relation(fields: [assetId], references: [id])
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id])
 
   @@index([portfolioId])
   @@index([roundId])
@@ -188,27 +187,23 @@ model MarketEvent {
   roundNumber Int
   title       String
   description String
-  impact      String      // SQLite doesn't have Json, using stringified JSON
+  impact      String
   triggeredAt DateTime    @default(now())
-
-  // Relations
   session     GameSession @relation(fields: [sessionId], references: [id])
 
   @@map("market_events")
 }
 
 model AuditLog {
-  id          String      @id @default(uuid())
-  actorId     String?     // Null = system action
-  action      String
-  resource    String      // e.g. "User:abc123", "Session:xyz789"
-  metadata    String?     // SQLite doesn't have Json, using stringified JSON
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime    @default(now())
-
-  // Relations
-  actor       User?       @relation("ActorLogs", fields: [actorId], references: [id])
+  id        String   @id @default(uuid())
+  actorId   String?
+  action    String
+  resource  String
+  metadata  String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  actor     User?    @relation("ActorLogs", fields: [actorId], references: [id])
 
   @@index([actorId])
   @@index([action])

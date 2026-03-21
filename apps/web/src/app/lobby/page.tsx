@@ -30,7 +30,7 @@ export default function LobbyPage() {
 
   // Auth guard — redirect if not logged in
   useEffect(() => {
-    const token = localStorage.getItem('hackanomics_token');
+    const token = localStorage.getItem('supabase_token');
     if (!token) {
       router.push('/login?redirect=/lobby');
     }

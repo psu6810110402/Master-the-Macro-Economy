@@ -28,7 +28,7 @@ export default function RegisterPage() {
         ...formData,
         role,
       });
-      localStorage.setItem('hackanomics_token', response.access_token);
+      localStorage.setItem('supabase_token', response.access_token);
       router.push('/lobby');
     } catch (err: any) {
       setError(err.message || 'Registration failed. Please try again.');

@@ -42,7 +42,7 @@ export async function apiFetch<T>(
 
   // Attach auth token if available
   if (auth && typeof window !== 'undefined') {
-    const token = localStorage.getItem('hackanomics_token');
+    const token = localStorage.getItem('supabase_token');
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
     }
@@ -99,6 +99,13 @@ export const api = {
     apiFetch<T>(path, {
       ...opts,
       method: 'PUT',
+      body: body ? JSON.stringify(body) : undefined,
+    }),
+
+  patch: <T>(path: string, body?: unknown, opts?: RequestInit) =>
+    apiFetch<T>(path, {
+      ...opts,
+      method: 'PATCH',
       body: body ? JSON.stringify(body) : undefined,
     }),
 

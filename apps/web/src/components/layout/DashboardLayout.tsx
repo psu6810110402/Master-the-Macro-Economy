@@ -17,14 +17,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-
-const navItems = [
-  { icon: Home, label: 'Front', href: '/' },
-  { icon: Globe2, label: 'Lobby', href: '/lobby' },
-  { icon: LayoutDashboard, label: 'Terminal', href: '/dashboard' },
-  { icon: ShoppingCart, label: 'Marketplace', href: '/marketplace' },
-  { icon: Trophy, label: 'Leaderboard', href: '/dashboard/leaderboard' },
-];
+import { api } from '@/lib/api';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -32,6 +25,7 @@ interface DashboardLayoutProps {
   currentRound?: number;
   totalRounds?: number;
   totalValue?: number;
+  secondsLeft?: number;
 }
 
 export default function DashboardLayout({ 
@@ -39,24 +33,51 @@ export default function DashboardLayout({
   title = 'Terminal',
   currentRound = 1,
   totalRounds = 5,
-  totalValue = 100000
+  totalValue = 100000,
+  secondsLeft
 }: DashboardLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
 
+  const navItems = [
+    { icon: Home, label: 'Front', href: '/' },
+    { icon: Globe2, label: 'Lobby', href: '/lobby' },
+    { icon: LayoutDashboard, label: 'Terminal', href: '/dashboard' },
+    { icon: ShoppingCart, label: 'Marketplace', href: '/marketplace' },
+    { icon: Trophy, label: 'Leaderboard', href: '/dashboard/leaderboard' },
+  ];
+
+  const [user, setUser] = React.useState<{ role: string } | null>(null);
+
   useEffect(() => {
-    const token = localStorage.getItem('hackanomics_token');
+    const token = localStorage.getItem('supabase_token');
     if (!token) {
-      router.push('/login');
+      router.push('/');
+      return;
     }
+
+    // Fetch user to determine role for navigation
+    api.get<{ role: string }>('auth/me')
+      .then(u => setUser(u))
+      .catch(() => {
+        localStorage.removeItem('supabase_token');
+        router.push('/');
+      });
   }, [router]);
 
   const handleSignOut = () => {
-    localStorage.removeItem('hackanomics_token');
+    localStorage.removeItem('supabase_token');
     localStorage.removeItem('current_session_id');
     localStorage.removeItem('session_role');
     router.push('/');
   };
+
+  const roleAwareNavItems = navItems.map(item => {
+    if (item.label === 'Terminal' && user?.role === 'PLAYER') {
+      return { ...item, href: '/lobby' };
+    }
+    return item;
+  });
 
   return (
     <div className="flex min-h-screen bg-[oklch(var(--bg-primary))] text-[oklch(var(--text-primary))] font-sans selection:bg-[oklch(var(--accent-brand)/0.3)]">
@@ -69,11 +90,14 @@ export default function DashboardLayout({
         </div>
 
         <nav className="flex-1 px-3 space-y-2">
-          {navItems.map((item) => {
+          {roleAwareNavItems.map((item) => {
+            // Hide "Front" if we are already in a dashboard/game context to keep it clean
+            if (item.label === 'Front' && pathname !== '/') return null;
+            
             const isActive = pathname === item.href;
             return (
               <Link
-                key={item.href}
+                key={item.label}
                 href={item.href}
                 className={`flex items-center gap-4 px-4 py-3 rounded-none group relative transition-all duration-200 ${
                   isActive 
@@ -158,6 +182,13 @@ export default function DashboardLayout({
               <div className="text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))]">Round</div>
               <div className="text-sm font-black font-display leading-tight tabular-nums">
                 {String(currentRound).padStart(2, '0')} / {String(totalRounds).padStart(2, '0')}
+              </div>
+            </div>
+            <div className="h-8 w-px bg-[oklch(var(--border-subtle))]" />
+            <div className="text-right">
+              <div className="text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))]">Timer</div>
+              <div className={`text-sm font-black font-mono leading-tight tabular-nums ${secondsLeft && secondsLeft < 30 ? 'text-[oklch(var(--status-error))] animate-pulse' : ''}`}>
+                {secondsLeft !== undefined ? `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, '0')}` : '--:--'}
               </div>
             </div>
             <div className="h-8 w-px bg-[oklch(var(--border-subtle))]" />

@@ -29,6 +29,7 @@ yarn-error.log*
 # Project Specific (User Request)
 .agents/skills
 doc/
+impeccable.md
 
 # System Files
 .DS_Store

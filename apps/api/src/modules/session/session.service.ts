@@ -13,6 +13,7 @@ export class SessionService {
     private gameService: GameService,
     private auditService: AuditService,
   ) {}
+
   async createSession(facilitatorId: string, name: string, maxPlayers: number, scenarioId?: string): Promise<GameSession> {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase(); // 6-char code
     
@@ -28,6 +29,30 @@ export class SessionService {
     });
   }
 
+  async getSessionsByFacilitator(facilitatorId: string) {
+    return prisma.gameSession.findMany({
+      where: { facilitatorId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        players: {
+          include: {
+            user: { select: { displayName: true } },
+            portfolio: { select: { totalValue: true } },
+          }
+        }
+      }
+    });
+  }
+
+  async getAllSessions() {
+    return prisma.gameSession.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        players: true,
+      }
+    });
+  }
+
   async joinSession(userId: string, code: string) {
     const session = await prisma.gameSession.findUnique({
       where: { code },
@@ -37,7 +62,6 @@ export class SessionService {
       throw new NotFoundException('Session not found or already started.');
     }
 
-    // Create SessionPlayer (upsert handles rejoins)
     const sessionPlayer = await prisma.sessionPlayer.upsert({
       where: { sessionId_userId: { sessionId: session.id, userId } },
       create: {
@@ -49,7 +73,6 @@ export class SessionService {
       },
     });
 
-    // Create Portfolio if it doesn't exist ($100,000 starting cash)
     const existingPortfolio = await prisma.portfolio.findUnique({
       where: { sessionPlayerId: sessionPlayer.id },
     });
@@ -88,6 +111,8 @@ export class SessionService {
   }
 
   async endSession(sessionId: string) {
-    return this.gameService.endSession(sessionId);
+    const result = await this.gameService.endSession(sessionId);
+    await this.auditService.anonymizeSessionPlayers(sessionId);
+    return result;
   }
 }

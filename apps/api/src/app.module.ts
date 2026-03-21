@@ -7,6 +7,8 @@ import { PortfolioModule } from './modules/portfolio/portfolio.module';
 import { TradeModule } from './modules/trade/trade.module';
 import { LeaderboardModule } from './modules/leaderboard/leaderboard.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { MacroEngineModule } from './modules/macro-engine/macro-engine.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -21,6 +23,8 @@ import { AuditModule } from './modules/audit/audit.module';
     PortfolioModule,
     TradeModule,
     LeaderboardModule,
+    MacroEngineModule,
+    AdminModule,
   ],
   controllers: [],
   providers: [],

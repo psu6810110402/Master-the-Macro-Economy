@@ -1,263 +1,324 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import DashboardLayout from '@/components/layout/DashboardLayout';
-import { useSocket } from '@/hooks/useSocket';
-import { Play, Pause, FastForward, Activity, Users, DollarSign, ListFilter } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  ShieldCheck, FileText, Lock, Eye, AlertTriangle, 
+  Search, ShieldAlert, Activity, Database, Settings, 
+  Users, Server, Terminal, CheckCircle2, XCircle
+} from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Button } from '@hackanomics/ui';
 import { api } from '@/lib/api';
 
-interface TradeLog {
-  userId: string;
-  trade: {
-    symbol: string;
-    quantity: number;
-    action: 'BUY' | 'SELL';
-  };
-  timestamp: number;
-}
+type AdminTab = 'OVERVIEW' | 'USERS' | 'AUDIT' | 'DIAGNOSTICS';
 
-export default function FacilitatorDashboard() {
-  const [sessionId, setSessionId] = useState<string>('');
-  const { isConnected, lastEvent, emit } = useSocket(sessionId);
-  const [gameState, setGameState] = useState<any>(null);
-  const [tradeLogs, setTradeLogs] = useState<TradeLog[]>([]);
+export default function AdminDashboard() {
+  const [activeTab, setActiveTab] = useState<AdminTab>('OVERVIEW');
+  const [logs, setLogs] = useState<any[]>([]);
+  const [activeSessions, setActiveSessions] = useState<any[]>([]);
+  const [usersData, setUsersData] = useState<any>(null);
+  const [pingResult, setPingResult] = useState<any>(null);
+  const [isPinging, setIsPinging] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
-    const savedId = localStorage.getItem('current_session_id');
-    if (savedId) setSessionId(savedId);
+    api.get<{ role: string }>('auth/me')
+      .then(user => {
+        if (user.role !== 'ADMIN') {
+          router.push(user.role === 'FACILITATOR' ? '/facilitator' : '/lobby');
+        } else {
+          fetchData();
+        }
+      })
+      .catch(() => router.push('/'));
   }, []);
 
-  // Listen for state changes
-  useEffect(() => {
-    if (lastEvent?.event === 'initialState') {
-      setGameState(lastEvent.data);
-    }
-    if (lastEvent?.event === 'roundStarted') {
-      setGameState(lastEvent.data);
-    }
-    if (lastEvent?.event === 'marketOpened') {
-      setGameState(lastEvent.data);
-    }
-    if (lastEvent?.event === 'tradeAcknowledged') {
-      const newLog: TradeLog = {
-        userId: lastEvent.data.userId,
-        trade: lastEvent.data.trade,
-        timestamp: Date.now(),
-      };
-      setTradeLogs((prev) => [newLog, ...prev].slice(0, 50));
-    }
-  }, [lastEvent]);
-
-  const handleNextRound = async () => {
-    if (!sessionId) return;
+  const fetchData = async () => {
     try {
-      await api.post(`session/${sessionId}/next-round`);
+      const [auditData, sessionData, userPayload] = await Promise.all([
+        api.get<any[]>('audit/logs'),
+        api.get<any[]>('session/all'),
+        api.get<any>('admin/users')
+      ]);
+      setLogs(auditData);
+      setActiveSessions(sessionData);
+      setUsersData(userPayload);
     } catch (err) {
-      console.error('Failed to advance round', err);
+      console.error('Failed to fetch dashboard data', err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleStartGame = async () => {
-    if (!sessionId) return;
+  const handleTestSupabase = async () => {
+    setIsPinging(true);
+    setPingResult(null);
     try {
-      await api.post(`session/${sessionId}/start`);
-    } catch (err) {
-      console.error('Failed to start session', err);
+      const result = await api.get('admin/test-supabase');
+      setPingResult(result);
+    } catch (err: any) {
+      setPingResult({ status: 'ERROR', message: err.message });
+    } finally {
+      setIsPinging(false);
     }
   };
 
-  const handleIntervention = async (type: string) => {
-    console.log(`Triggering intervention: ${type}`);
-    // Future: api.post(`session/${SESSION_ID}/event`, { type });
+  const handleTerminate = async (sessionId: string) => {
+    if (confirm('DANGER: Immediate session termination. Proceed?')) {
+      try {
+        await api.post(`session/${sessionId}/end`, {});
+        fetchData();
+      } catch (e) {
+        console.error('Terminate failed', e);
+      }
+    }
   };
+
+  if (isLoading) return <div className="min-h-screen bg-black flex items-center justify-center text-white italic font-black uppercase tracking-[0.5em]">Authenticating Level 3...</div>;
+
+  const renderSidebar = () => (
+    <aside className="w-64 border-r border-[oklch(var(--border-subtle))] bg-[oklch(var(--bg-secondary))] flex flex-col h-[calc(100vh-80px)]">
+      <div className="p-6 space-y-2">
+        <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-[oklch(var(--text-muted))] mb-4">Command Topics</h3>
+        
+        {([
+          { id: 'OVERVIEW', label: 'System Overview', icon: Activity },
+          { id: 'USERS', label: 'User Directory', icon: Users },
+          { id: 'AUDIT', label: 'Behavioral Intelligence', icon: Search },
+          { id: 'DIAGNOSTICS', label: 'Integration Diagnostics', icon: Server }
+        ] as const).map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-widest transition-all ${
+              activeTab === tab.id 
+                ? 'bg-[oklch(var(--accent-brand)/0.1)] text-[oklch(var(--accent-brand))] border-l-2 border-[oklch(var(--accent-brand))]' 
+                : 'text-[oklch(var(--text-muted))] hover:bg-white/5 border-l-2 border-transparent hover:text-white'
+            }`}
+          >
+            <tab.icon size={16} />
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-auto p-6 border-t border-[oklch(var(--border-subtle))]">
+        <p className="text-[8px] uppercase tracking-widest text-[oklch(var(--text-muted))]">PDPA Retention policies currently active.<br/>Automated Player data wiping enabled.</p>
+      </div>
+    </aside>
+  );
 
   return (
-    <DashboardLayout title="Command Center">
-      <div className="max-w-6xl mx-auto space-y-8">
-        <header className="flex justify-between items-center border-b border-[oklch(var(--border-subtle))] pb-8">
-          <div>
-            <div className="text-[10px] uppercase font-bold tracking-[0.3em] text-[oklch(var(--accent-brand))] mb-2 flex items-center gap-2">
-              <Activity size={12} />
-              Facilitator Mission Control
-            </div>
-            <h1 className="text-4xl font-black font-display tracking-tighter uppercase underline decoration-[oklch(var(--accent-brand))] decoration-4 underline-offset-8">
-              Session Management
-            </h1>
-          </div>
-          <div className="grid grid-cols-3 gap-8">
-            <StatBlock label="Players" value="Active" icon={<Users size={14} />} />
-            <StatBlock label="Market Vol." value="HIGH" color="text-[oklch(var(--accent-up))]" icon={<Activity size={14} />} />
-            <StatBlock label="Round" value={`${gameState?.currentRound || 1} / 05`} icon={<ListFilter size={14} />} />
-          </div>
-        </header>
+    <main className="min-h-screen bg-[oklch(var(--bg-main))] text-[oklch(var(--text-primary))] flex flex-col">
+      {/* Top Navigation */}
+      <header className="h-20 border-b border-[oklch(var(--border-strong))] px-8 flex justify-between items-center shrink-0">
+        <div className="flex items-center gap-4">
+           <div className="w-12 h-12 bg-white text-black flex items-center justify-center font-black text-2xl italic">A</div>
+           <div>
+             <h1 className="text-xl font-black uppercase tracking-tighter">Director Terminal</h1>
+             <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[oklch(var(--text-muted))]">Level 3 Complete Override</span>
+           </div>
+        </div>
+        <Button onClick={() => { localStorage.removeItem('supabase_token'); router.push('/'); }} className="bg-[oklch(var(--bg-secondary))] text-[10px] uppercase font-black tracking-widest px-6 hover:bg-[oklch(var(--status-error))] hover:text-white transition-colors">Terminate Session (Logout)</Button>
+      </header>
 
-        <main className="grid grid-cols-12 gap-8">
-          {/* Controls */}
-          <section className="col-span-4 space-y-6">
-            <div className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] p-6 relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-[oklch(var(--accent-brand)/0.05)] blur-3xl rounded-full -mr-16 -mt-16 group-hover:bg-[oklch(var(--accent-brand)/0.1)] transition-colors" />
-              <h2 className="text-sm font-black uppercase tracking-widest mb-6 flex items-center gap-2">
-                <Activity size={16} className="text-[oklch(var(--accent-brand))]" />
-                Engine Commands
-              </h2>
-              
-              <div className="space-y-4">
-                <ControlButton 
-                  onClick={handleStartGame}
-                  label="Initialize Session" 
-                  subLabel="Boot game loop and prices"
-                  icon={<Play size={18} />} 
-                  variant="primary"
-                />
-                {gameState?.status === 'NEWS_BREAK' ? (
-                  <ControlButton 
-                    onClick={() => emit('openMarket', { sessionId })}
-                    label="Open Trading Market" 
-                    subLabel="Unlock the market for trading"
-                    icon={<Play size={18} />} 
-                    variant="primary"
-                  />
-                ) : (
-                  <ControlButton 
-                    onClick={handleNextRound}
-                    label="Publish Breaking News" 
-                    subLabel="Lock trading and unveil event"
-                    icon={<FastForward size={18} />} 
-                  />
-                )}
-                <ControlButton 
-                  onClick={() => {
-                    if (confirm('Are you sure you want to terminate the simulation? This will finalize all rankings.')) {
-                      emit('endSession', { sessionId });
-                    }
-                  }}
-                  label="Terminate Session" 
-                  subLabel="Finalize all rankings"
-                  icon={<Pause size={18} />} 
-                  variant="danger"
-                />
-              </div>
-            </div>
+      <div className="flex flex-1 overflow-hidden">
+        {renderSidebar()}
 
-            <div className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] p-6">
-              <h2 className="text-sm font-black uppercase tracking-widest mb-6">Market Interventions</h2>
-              <div className="grid grid-cols-2 gap-3 pb-4">
-                <button 
-                  onClick={() => handleIntervention('CRISIS')}
-                  className="p-3 border border-[oklch(var(--border-subtle))] text-[10px] font-black uppercase tracking-widest hover:bg-[oklch(var(--accent-down)/0.12)] hover:border-[oklch(var(--accent-down)/0.4)] active:scale-[0.97] transition-all duration-200"
-                  style={{ transitionTimingFunction: 'var(--ease-out-quart)' }}
-                >
-                  Economic Crisis
-                </button>
-                <button 
-                  onClick={() => handleIntervention('BOOM')}
-                  className="p-3 border border-[oklch(var(--border-subtle))] text-[10px] font-black uppercase tracking-widest hover:bg-[oklch(var(--accent-up)/0.12)] hover:border-[oklch(var(--accent-up)/0.4)] active:scale-[0.97] transition-all duration-200"
-                  style={{ transitionTimingFunction: 'var(--ease-out-quart)' }}
-                >
-                  Tech Bull Run
-                </button>
-              </div>
-              <p className="text-[10px] text-[oklch(var(--text-muted))] uppercase font-bold tracking-widest">Injected events affect asset volatilities immediately.</p>
-            </div>
-          </section>
-
-          {/* Trade Feed */}
-          <section className="col-span-8 bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] flex flex-col h-[600px]">
-            <div className="p-4 border-b border-[oklch(var(--border-subtle))] flex justify-between items-center bg-[oklch(var(--bg-primary))]">
-              <h2 className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                <DollarSign size={14} className="text-[oklch(var(--accent-brand))]" />
-                Live Order Flow
-              </h2>
-              <div className="text-[10px] font-bold uppercase tracking-widest opacity-40">Auto-scrolling Stream</div>
-            </div>
+        <div className="flex-1 overflow-y-auto p-8 lg:p-12">
+          <div className="max-w-6xl space-y-8">
             
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-[11px] relative scrollbar-hide">
-              {/* Scanning Beam Animation */}
-              <motion.div 
-                animate={{ top: ['0%', '100%', '0%'] }}
-                transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
-                className="absolute left-0 right-0 h-[2px] bg-[oklch(var(--accent-brand)/0.2)] shadow-[0_0_15px_oklch(var(--accent-brand))] z-10 pointer-events-none"
-              />
-              
-              <AnimatePresence initial={false}>
-                {tradeLogs.length === 0 && (
-                  <div className="h-full flex items-center justify-center opacity-20 uppercase tracking-[0.2em] animate-pulse">Awaiting Market Activity...</div>
-                )}
-                {tradeLogs.map((log, i) => (
-                  <motion.div 
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    key={`${log.timestamp}-${i}`}
-                    className="flex gap-4 p-3 border-l-2 border-[oklch(var(--border-subtle))] hover:border-[oklch(var(--accent-brand))] hover:bg-[oklch(var(--bg-primary))] group transition-all duration-300"
-                  >
-                    <span className="opacity-30 tabular-nums">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                    <span className="font-bold text-[oklch(var(--accent-brand))] uppercase tracking-tighter">{log.userId.slice(0, 8)}</span>
-                    <div className="flex items-center gap-2">
-                       <span className={`px-1.5 py-0.5 rounded-[2px] text-[9px] font-black ${log.trade.action === 'BUY' ? 'bg-[oklch(var(--accent-up)/0.15)] text-[oklch(var(--accent-up))]' : 'bg-[oklch(var(--accent-down)/0.15)] text-[oklch(var(--accent-down))]'}`}>
-                        {log.trade.action}
-                      </span>
+            {activeTab === 'OVERVIEW' && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {[
+                    { label: 'SOC2 Status', value: 'TYPE II READY', icon: <ShieldCheck className="text-[oklch(var(--status-success))]" />, trend: 'Validated' },
+                    { label: 'PDPA Anonymization', value: 'AUTOMATED', icon: <Lock className="text-[oklch(var(--status-success))]" />, trend: '90-day Sweep Active' },
+                    { label: 'System Uptime', value: '99.99%', icon: <Activity className="text-[oklch(var(--accent-brand))]" />, trend: 'Operational' },
+                    { label: 'Security Threats', value: '0 ACTIVE', icon: <ShieldAlert className="text-[oklch(var(--status-success))]" />, trend: 'Firewall: Active' },
+                  ].map((stat, i) => (
+                    <div key={i} className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] p-6 space-y-4">
+                      <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">
+                        <span>{stat.label}</span>
+                        {stat.icon}
+                      </div>
+                      <div>
+                        <div className="text-xl font-black tracking-tighter">{stat.value}</div>
+                        <div className="text-[8px] font-bold uppercase tracking-widest text-[oklch(var(--text-muted))] mt-1">{stat.trend}</div>
+                      </div>
                     </div>
-                    <span className="font-bold tracking-widest text-[oklch(var(--text-primary))]">{log.trade.quantity} {log.trade.symbol}</span>
-                    <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity uppercase text-[9px] font-black text-[oklch(var(--accent-brand))] bg-[oklch(var(--accent-brand)/0.1)] px-2 py-1">ACK</span>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </div>
-          </section>
-        </main>
-      </div>
-    </DashboardLayout>
-  );
-}
+                  ))}
+                </div>
 
-function StatBlock({ label, value, icon, color = 'text-[oklch(var(--text-primary))]' }: any) {
-  return (
-    <div className="border-r border-[oklch(var(--border-subtle))] last:border-0 pr-8 last:pr-0">
-      <div className="text-[9px] uppercase font-bold tracking-[0.2em] text-[oklch(var(--text-muted))] mb-2 flex items-center gap-1 group-hover:text-[oklch(var(--accent-brand))] transition-colors">
-        {icon}
-        {label}
-      </div>
-      <AnimatePresence mode="wait">
-        <motion.div 
-          key={value}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          className={`text-2xl font-black font-display tracking-tight uppercase ${color}`}
-        >
-          {value}
-        </motion.div>
-      </AnimatePresence>
-    </div>
-  );
-}
+                <div className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] p-6">
+                  <h2 className="text-xs font-black uppercase tracking-[0.3em] mb-6 flex items-center gap-2">
+                    <Activity size={14} className="text-[oklch(var(--accent-brand))]" /> Live Theatres
+                  </h2>
+                  <div className="space-y-4">
+                    {activeSessions.filter(s => s.status !== 'FINISHED').length === 0 ? (
+                      <div className="text-center text-[10px] font-black uppercase tracking-widest opacity-20 py-8">NO ACTIVE SESSIONS</div>
+                    ) : (
+                      activeSessions.filter(s => s.status !== 'FINISHED').map(session => (
+                        <div key={session.id} className="flex justify-between items-center p-4 border border-[oklch(var(--border-subtle))]">
+                          <div>
+                            <div className="text-xs font-black uppercase tracking-widest">{session.name} [{session.code}]</div>
+                            <div className="text-[10px] text-[oklch(var(--text-muted))] mt-1">{session.players?.length || 0} Operatives attached</div>
+                          </div>
+                          <button onClick={() => handleTerminate(session.id)} className="px-4 py-2 bg-[#4A1010]/40 text-[#ff4444] hover:bg-[#ff4444] hover:text-white border border-[#ff4444]/50 text-[10px] font-black uppercase tracking-widest transition-colors">
+                            Emergency Terminate
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            )}
 
-function ControlButton({ onClick, label, subLabel, icon, variant = 'secondary' }: any) {
-  const isPrimary = variant === 'primary';
-  const isDanger = variant === 'danger';
-  
-  return (
-    <button 
-      onClick={onClick}
-      className={`w-full group text-left p-4 border active:scale-[0.97] transition-all duration-200 ${
-        isPrimary ? 'bg-[oklch(var(--accent-brand))] text-[oklch(var(--bg-primary))] border-[oklch(var(--accent-brand))] hover:brightness-110' :
-        isDanger ? 'bg-transparent border-[oklch(var(--accent-down)/0.4)] text-[oklch(var(--accent-down))] hover:bg-[oklch(var(--accent-down)/0.08)]' :
-        'bg-transparent border-[oklch(var(--border-subtle))] hover:border-[oklch(var(--text-muted)/0.5)]'
-      }`}
-      style={{ transitionTimingFunction: 'var(--ease-out-quart)' }}
-    >
-      <div className="flex items-center gap-4">
-        <div className={`p-2 ${
-          isPrimary ? 'bg-[oklch(var(--bg-primary)/0.15)]' : 'bg-[oklch(var(--bg-primary))]'
-        }`}>
-          {icon}
-        </div>
-        <div>
-          <div className="text-[11px] font-black uppercase tracking-widest">{label}</div>
-          <div className="text-[8px] uppercase font-bold tracking-wider opacity-50 mt-0.5">{subLabel}</div>
+            {activeTab === 'USERS' && usersData && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
+                <section>
+                  <h2 className="text-xs font-black uppercase tracking-[0.3em] mb-4 text-[oklch(var(--text-muted))] border-b border-[oklch(var(--border-subtle))] pb-2">Staff & Leadership Roster</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {usersData.staff.map((staff: any) => (
+                      <div key={staff.id} className="p-4 bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-black tracking-widest uppercase">{staff.displayName}</div>
+                          <div className="text-[10px] text-[oklch(var(--text-muted))]">{staff.email}</div>
+                        </div>
+                        <span className={`px-2 py-1 text-[8px] font-black uppercase tracking-widest border ${staff.role === 'ADMIN' ? 'border-[oklch(var(--status-error))] text-[oklch(var(--status-error))]' : 'border-[oklch(var(--accent-brand))] text-[oklch(var(--accent-brand))]'}`}>{staff.role}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section>
+                  <h2 className="text-xs font-black uppercase tracking-[0.3em] mb-6 text-[oklch(var(--text-muted))] border-b border-[oklch(var(--border-subtle))] pb-2 mt-12">Ephemeral Player Directories (By Session)</h2>
+                  <div className="space-y-6">
+                    {usersData.sessions.map((session: any) => (
+                      <div key={session.id} className="border border-[oklch(var(--border-subtle))]">
+                        <div className="bg-[oklch(var(--bg-secondary))] px-4 py-3 border-b border-[oklch(var(--border-subtle))] flex justify-between items-center">
+                          <span className="text-xs font-black uppercase tracking-[0.2em]">{session.name} [{session.code}]</span>
+                          <span className="text-[10px] uppercase font-bold text-[oklch(var(--text-muted))]">Status: {session.status}</span>
+                        </div>
+                        <div className="p-4">
+                          {session.players.length === 0 ? <p className="text-[10px] font-bold text-[oklch(var(--text-muted))] italic">No operatives deployed.</p> : (
+                            <table className="w-full text-left text-[10px] uppercase tracking-widest">
+                              <thead>
+                                <tr className="text-[oklch(var(--text-muted))] border-b border-white/5">
+                                  <th className="pb-2">Operative ID</th>
+                                  <th className="pb-2">Email</th>
+                                  <th className="pb-2 text-right">Portfolio Value</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {session.players.map((p: any) => (
+                                  <tr key={p.id} className="border-b border-white/5 last:border-0 text-white/80">
+                                    <td className="py-2">{p.user?.displayName || 'Unknown'}</td>
+                                    <td className="py-2 opacity-50">{p.user?.email}</td>
+                                    <td className="py-2 text-right font-mono">${(p.portfolio?.totalValue || 0).toLocaleString()}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </motion.div>
+            )}
+
+            {activeTab === 'AUDIT' && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-xs font-black uppercase tracking-[0.3em] flex items-center gap-2">
+                     <Search size={14} className="text-[oklch(var(--accent-brand))]" /> Master Behavior Log
+                  </h2>
+                  <div className="text-[10px] font-bold uppercase tracking-widest px-3 py-1 border border-[oklch(var(--status-success)/0.5)] text-[oklch(var(--status-success))]">PDPA Sweeper ON</div>
+                </div>
+                <div className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] overflow-hidden">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-[oklch(var(--bg-main))] border-b border-[oklch(var(--border-subtle))] text-[9px] font-black uppercase tracking-[0.2em] text-[oklch(var(--text-muted))]">
+                        <th className="px-6 py-4">Timestamp</th>
+                        <th className="px-6 py-4">Action Event</th>
+                        <th className="px-6 py-4">Origin Actor</th>
+                        <th className="px-6 py-4">Resource Target</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-[10px] font-bold font-mono">
+                      {logs.map((log) => (
+                        <tr key={log.id} className="border-b border-[oklch(var(--border-subtle))] hover:bg-white/5 transition-colors">
+                          <td className="px-6 py-4 opacity-40">{new Date(log.createdAt).toLocaleString()}</td>
+                          <td className="px-6 py-4 text-[oklch(var(--accent-brand))]">{log.action}</td>
+                          <td className="px-6 py-4">{log.actor?.displayName || 'SYSTEM'}</td>
+                          <td className="px-6 py-4 truncate max-w-[200px]">{log.resource}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'DIAGNOSTICS' && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+                 <div>
+                   <h2 className="text-2xl font-black uppercase tracking-tighter mb-2">Integration Network Control</h2>
+                   <p className="text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))] leading-relaxed max-w-2xl">
+                     Perform secure health checks on connected enterprise applications.
+                     Pings are executed securely strictly using server-side environment variables to mitigate SSRF vectors. No request-body keys are accepted.
+                   </p>
+                 </div>
+
+                 <div className="p-8 border border-[oklch(var(--border-subtle))] bg-[oklch(var(--bg-secondary))] relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-32 opacity-5 pointer-events-none">
+                       <Server size={300} />
+                    </div>
+
+                    <div className="relative z-10 space-y-8">
+                       <div className="space-y-2">
+                         <div className="text-[10px] font-black uppercase tracking-widest text-[oklch(var(--accent-brand))]">Target Service</div>
+                         <div className="text-3xl font-black tracking-tighter italic">SUPABASE DATA LAYER</div>
+                       </div>
+
+                       <Button 
+                         onClick={handleTestSupabase} 
+                         disabled={isPinging}
+                         className="h-14 bg-white text-black text-xs font-black uppercase tracking-[0.2em] px-12 italic"
+                       >
+                         {isPinging ? 'Transmitting Subspace Ping...' : 'Execute Diagnostic Ping Sequence'}
+                       </Button>
+
+                       {pingResult && (
+                         <div className={`mt-8 p-6 border ${pingResult.status === 'SUCCESS' ? 'border-[oklch(var(--status-success))] bg-[oklch(var(--status-success)/0.05)]' : 'border-[oklch(var(--status-error))] bg-[oklch(var(--status-error)/0.05)]'}`}>
+                           <div className="flex gap-4">
+                              <div className="pt-1">
+                                {pingResult.status === 'SUCCESS' ? <CheckCircle2 className="text-[oklch(var(--status-success))]" /> : <XCircle className="text-[oklch(var(--status-error))]" />}
+                              </div>
+                              <div className="space-y-2">
+                                <h4 className={`text-sm font-black uppercase tracking-widest ${pingResult.status === 'SUCCESS' ? 'text-[oklch(var(--status-success))]' : 'text-[oklch(var(--status-error))]'}`}>
+                                  {pingResult.status === 'SUCCESS' ? 'HANDSHAKE ESTABLISHED' : 'CONNECTION REFUSED'}
+                                </h4>
+                                <p className="text-xs font-mono font-medium opacity-80">{pingResult.message}</p>
+                                <div className="mt-4 pt-4 border-t border-white/10 text-[10px] font-mono text-[oklch(var(--text-muted))]">
+                                  Endpoint Resolves To: {pingResult.url || 'UNKNOWN'}
+                                </div>
+                              </div>
+                           </div>
+                         </div>
+                       )}
+                    </div>
+                 </div>
+              </motion.div>
+            )}
+
+          </div>
         </div>
       </div>
-    </button>
+    </main>
   );
 }

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, HttpCode, HttpStatus, Param } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, HttpCode, HttpStatus, Param } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -11,6 +11,20 @@ import { JoinSessionDto } from './dto/join-session.dto';
 export class SessionController {
   constructor(private sessionService: SessionService) {}
 
+  @Get('facilitator')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'FACILITATOR')
+  async getFacilitatorSessions(@CurrentUser() user: any) {
+    return this.sessionService.getSessionsByFacilitator(user.id);
+  }
+
+  @Get('all')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async getAllSessions() {
+    return this.sessionService.getAllSessions();
+  }
+
   @Post('create')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN', 'FACILITATOR')
@@ -22,7 +36,6 @@ export class SessionController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async joinSession(@CurrentUser() user: any, @Body() dto: JoinSessionDto) {
-    // Both STUDENT and TEACHER can join a session to interact with it
     return this.sessionService.joinSession(user.id, dto.code);
   }
 

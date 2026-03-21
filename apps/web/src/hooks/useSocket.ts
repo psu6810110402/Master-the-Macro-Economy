@@ -46,7 +46,7 @@ export const useSocket = (sessionId?: string) => {
     });
 
     // Central listener for game events
-    const events = ['roundStarted', 'portfolioUpdate', 'marketUpdate', 'tradeAcknowledged', 'leaderboardUpdate'];
+    const events = ['game:round_start', 'portfolioUpdate', 'marketUpdate', 'tradeAcknowledged', 'leaderboardUpdate'];
     events.forEach(event => {
       socket.on(event, (data) => {
         setLastEvent({ event, data });

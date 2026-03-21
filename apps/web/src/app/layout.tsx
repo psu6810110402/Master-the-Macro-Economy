@@ -1,11 +1,17 @@
 import React from 'react';
 import type { Metadata } from 'next';
-import { Murecho, Outfit } from 'next/font/google';
+import { Inter, Outfit, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 
-const murecho = Murecho({ 
+const inter = Inter({ 
   subsets: ['latin'],
-  variable: '--font-murecho',
+  variable: '--font-inter',
+  display: 'swap',
+});
+
+const jetbrains = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-jetbrains',
   display: 'swap',
 });
 
@@ -26,7 +32,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${murecho.variable} ${outfit.variable}`}>
+    <html lang="en" className={`${inter.variable} ${outfit.variable} ${jetbrains.variable}`}>
       <body className="antialiased min-h-screen flex flex-col">
         {children}
       </body>

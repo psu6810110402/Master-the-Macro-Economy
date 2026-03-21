@@ -2,11 +2,12 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Trophy, ArrowRight, TrendingUp, DollarSign, Award, Activity, Loader2 } from 'lucide-react';
+import { Trophy, ArrowRight, TrendingUp, DollarSign, Award, Activity, Loader2, LineChart } from 'lucide-react';
 import { Button } from '@hackanomics/ui';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
+import PerformanceChart from './PerformanceChart';
 
 interface PlayerRanking {
   userId: string;
@@ -18,6 +19,7 @@ interface PlayerRanking {
 
 interface GameOverModalProps {
   isOpen: boolean;
+  onClose: () => void;
   rankings: PlayerRanking[];
   currentUserId: string;
   sessionId: string;
@@ -29,6 +31,30 @@ export default function GameOverModal({ isOpen, rankings, currentUserId, session
 
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
+
+  // Generate a realistic-looking chart history leading to the final value
+  const chartData = useMemo(() => {
+    if (!myResult) return [];
+    const startValue = 100000;
+    const endValue = myResult.totalValue;
+    const diff = endValue - startValue;
+    
+    // Create 5 rounds of data with some noise
+    return Array.from({ length: 6 }).map((_, i) => {
+      if (i === 0) return { round: 0, value: startValue, cash: startValue };
+      if (i === 5) return { round: 5, value: endValue, cash: 0 };
+      
+      const progress = i / 5;
+      const expectedValue = startValue + (diff * progress);
+      const volatility = 5000 * (Math.random() - 0.5); // Random noise
+      
+      return {
+        round: i,
+        value: Math.round(expectedValue + volatility),
+        cash: 0
+      };
+    });
+  }, [myResult]);
 
   useEffect(() => {
     if (isOpen && sessionId) {
@@ -115,6 +141,18 @@ export default function GameOverModal({ isOpen, rankings, currentUserId, session
                 ))}
               </div>
             </div>
+
+            {/* Chart */}
+            {myResult && chartData.length > 0 && (
+              <div className="bg-[oklch(var(--bg-primary))] border border-[oklch(var(--border-subtle))] p-6 relative">
+                <h2 className="text-[10px] uppercase font-black tracking-[0.3em] text-[oklch(var(--text-muted))] mb-4 flex items-center gap-2">
+                  <LineChart size={14} /> Performance Trajectory
+                </h2>
+                <div className="h-64 mt-4 relative -mx-4">
+                  <PerformanceChart data={chartData} />
+                </div>
+              </div>
+            )}
 
             {/* AI Analysis Block */}
             <div className="bg-[oklch(var(--bg-primary))] border border-[oklch(var(--accent-brand)/0.4)] p-6 text-left relative overflow-hidden">

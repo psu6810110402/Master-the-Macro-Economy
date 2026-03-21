@@ -30,7 +30,7 @@ function LoginContent() {
     setError(null);
     try {
       const response = await api.post<{ access_token: string }>('auth/login', formData);
-      localStorage.setItem('hackanomics_token', response.access_token);
+      localStorage.setItem('supabase_token', response.access_token);
       router.push(redirectTo);
     } catch (err: any) {
       setError(err.message || 'Verification failed. Access Denied.');
@@ -44,7 +44,7 @@ function LoginContent() {
     setIsLoading(true);
     try {
       const response = await api.post<{ access_token: string }>('auth/guest', { role: 'STUDENT' });
-      localStorage.setItem('hackanomics_token', response.access_token);
+      localStorage.setItem('supabase_token', response.access_token);
       router.push(redirectTo);
     } catch (err) {
       console.error('Guest login failed:', err);

@@ -18,6 +18,7 @@ import {
 import { Button } from '@hackanomics/ui';
 import { api } from '@/lib/api';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import TradeDialog from '@/components/dashboard/TradeDialog';
 
 interface Asset {
   id: string;
@@ -34,20 +35,25 @@ export default function MarketplacePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('ALL');
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
+  const [isTradeOpen, setIsTradeOpen] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   useEffect(() => {
+    const savedSessionId = localStorage.getItem('current_session_id');
+    setSessionId(savedSessionId);
+
     const fetchAssets = async () => {
       try {
         const data = await api.get<any[]>('game/assets');
-        // Mocking some extra data for the premium feel
-        const enhancedAssets = data.map(base => ({
+        // Standardize the data from the API
+        const realAssets = data.map(base => ({
           ...base,
-          currentPrice: 100 + (Math.random() * 50),
-          change24h: (Math.random() - 0.4) * 5,
-          sentiment: Math.random() > 0.6 ? 'BULLISH' : (Math.random() > 0.3 ? 'NEUTRAL' : 'BEARISH'),
-          name: base.symbol === 'AAPL' ? 'Apple Inc.' : (base.symbol === 'BTC' ? 'Bitcoin' : base.symbol)
+          currentPrice: base.price || 100, // Use price from backend
+          change24h: 0, // Will be updated by socket in later builds
+          sentiment: 'NEUTRAL' as const
         }));
-        setAssets(enhancedAssets);
+        setAssets(realAssets);
       } catch (err) {
         console.error('Failed to fetch assets:', err);
       } finally {
@@ -56,6 +62,25 @@ export default function MarketplacePage() {
     };
     fetchAssets();
   }, []);
+
+  const handleTrade = async (trade: { symbol: string; quantity: number; action: 'BUY' | 'SELL' }) => {
+    if (!sessionId) {
+      alert('No active session found. Please join a session first.');
+      return;
+    }
+    try {
+      await api.post('trade/execute', {
+        sessionId,
+        symbol: trade.symbol,
+        quantity: trade.quantity,
+        action: trade.action,
+      });
+      setIsTradeOpen(false);
+      alert(`${trade.action} order for ${trade.quantity} ${trade.symbol} submitted successfully.`);
+    } catch (err: any) {
+      alert(`Trade failed: ${err.message}`);
+    }
+  };
 
   const filteredAssets = assets.filter(asset => {
     const matchesSearch = asset.symbol.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -168,11 +193,13 @@ export default function MarketplacePage() {
                 <div className="grid grid-cols-2 gap-3">
                   <Button
                     variant="ghost"
+                    onClick={() => { setSelectedAsset({ ...asset, price: asset.currentPrice }); setIsTradeOpen(false); /* placeholder for details */ }}
                     className="w-full border-[oklch(var(--border-subtle))] uppercase text-[10px] font-black tracking-widest h-12 hover:bg-[oklch(var(--bg-main))]"
                   >
                     Details <Info size={12} className="ml-2" />
                   </Button>
                   <Button
+                    onClick={() => { setSelectedAsset({ ...asset, price: asset.currentPrice }); setIsTradeOpen(true); }}
                     className="w-full bg-[oklch(var(--accent-brand))] text-black uppercase text-[10px] font-black tracking-widest h-12 hover:bg-white hov-scale"
                   >
                     Quick Trade <ShoppingCart size={12} className="ml-2" />
@@ -193,6 +220,13 @@ export default function MarketplacePage() {
           </p>
         </div>
       </div>
+
+      <TradeDialog 
+        isOpen={isTradeOpen}
+        onClose={() => setIsTradeOpen(false)}
+        asset={selectedAsset}
+        onExecute={handleTrade}
+      />
     </DashboardLayout>
   );
 }

@@ -22,13 +22,13 @@ async function main() {
   // 2. Create Session
   await prisma.gameSession.upsert({
     where: { id: sessionId },
-    update: { status: 'ACTIVE' },
+    update: { status: 'WAITING' },
     create: {
       id: sessionId,
       code: 'TEST69',
       name: 'Global Macro Alpha',
       facilitatorId,
-      status: 'ACTIVE',
+      status: 'WAITING',
       roundNumber: 1,
     },
   });

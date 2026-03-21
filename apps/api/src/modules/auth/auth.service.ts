@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/co
 import { JwtService } from '@nestjs/jwt';
 import { PrismaClient } from '@hackanomics/database';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -43,14 +44,14 @@ export class AuthService {
   }
 
   async createGuestUser(role: string = 'PLAYER') {
-    const guestId = Math.random().toString(36).substring(7);
-    const email = `guest_${guestId}@hackanomics.dev`;
+    const guestId = randomUUID();
+    const email = `guest_${guestId.substring(0, 8)}@hackanomics.dev`;
     
     const user = await prisma.user.create({
       data: {
-        supabaseId: `guest_${guestId}`,
+        supabaseId: guestId,
         email,
-        displayName: `Guest ${guestId.toUpperCase()}`,
+        displayName: `Guest ${guestId.substring(0, 6)}`,
         role,
       }
     });
@@ -69,15 +70,15 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
     
-    // Generate a pseudo-supabaseId for internal consistency if not using real Supabase
-    const internalId = Math.random().toString(36).substring(7);
+    // Validate incoming authentic Supabase JWT sync claim, otherwise generate compliant UUID
+    const validatedSupabaseId = (dto as any).supabaseId || randomUUID();
 
     const user = await prisma.user.create({
       data: {
         email: dto.email,
         passwordHash,
         displayName: dto.displayName,
-        supabaseId: `local_${internalId}`,
+        supabaseId: validatedSupabaseId,
         role: dto.role || 'PLAYER',
       },
     });

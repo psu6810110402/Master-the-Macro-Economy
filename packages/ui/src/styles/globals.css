@@ -5,25 +5,34 @@
 @layer base {
   :root {
     /* Bloomberg-Editorial: High-Impact Financial Aesthetics */
-    --bg-primary: 12% 0.03 260;    /* Deep Carbon Navy */
-    --bg-secondary: 18% 0.04 260;  /* Slate Blue Depth */
+    --bg-main: 12% 0.03 260;         /* Deep Carbon Navy */
+    --bg-primary: 12% 0.03 260;      /* Alias for bg-main */
+    --bg-secondary: 18% 0.04 260;    /* Slate Blue Depth */
     --bg-tertiary: 24% 0.05 260;
+    --bg-card: 18% 0.04 260;         /* Same as secondary */
 
-    --text-primary: 98% 0.01 260;  /* Tinted White — never pure #fff */
+    --text-primary: 98% 0.01 260;    /* Tinted White — never pure #fff */
     --text-secondary: 85% 0.02 260;
     --text-muted: 55% 0.05 260;
 
     /* Pulse of the Market */
-    --accent-up: 78% 0.22 145;     /* Acid Green */
-    --accent-down: 62% 0.25 25;    /* Cyber Red */
-    --accent-brand: 72% 0.18 275;  /* Electric Indigo */
+    --accent-up: 78% 0.22 145;       /* Acid Green */
+    --accent-down: 62% 0.25 25;      /* Cyber Red */
+    --accent-brand: 72% 0.18 275;    /* Electric Indigo */
     
     --border-subtle: 20% 0.05 260;
+    --border-strong: 30% 0.06 260;
     --border-focus: 72% 0.18 275;
+
+    /* Status Colors */
+    --status-success: 78% 0.22 145;  /* Same as accent-up */
+    --status-error: 62% 0.25 25;     /* Same as accent-down */
+    --status-warning: 80% 0.18 80;   /* Amber */
 
     /* Typographic Hierarchy */
     --font-heading: var(--font-outfit);
-    --font-body: var(--font-murecho);
+    --font-body: var(--font-inter);
+    --font-mono: var(--font-jetbrains);
 
     /* Motion: Exponential Easing — natural deceleration */
     --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
@@ -47,9 +56,9 @@ h1, h2, h3, h4, .font-display {
 }
 
 body {
-  background-color: oklch(var(--bg-primary));
+  background-color: oklch(var(--bg-main));
   color: oklch(var(--text-primary));
-  font-family: var(--font-murecho), sans-serif;
+  font-family: var(--font-inter), sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
