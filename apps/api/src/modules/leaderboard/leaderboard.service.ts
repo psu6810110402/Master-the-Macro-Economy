@@ -39,7 +39,7 @@ export class LeaderboardService {
 
         return {
           userId: p.userId,
-          username: p.user.name,
+          username: p.user.displayName,
           totalValue,
           rank: 0,
         };

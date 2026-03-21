@@ -52,6 +52,7 @@ export default function FacilitatorDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [players, setPlayers] = useState<PlayerStatus[]>([]);
   const [user, setUser] = useState<{ role: string } | null>(null);
+  const [timer, setTimer] = useState(0);
   const router = useRouter();
 
   // Auth & Role Guard
@@ -90,7 +91,33 @@ export default function FacilitatorDashboard() {
     }
 
     if (lastEvent.event === 'game:round_start') {
+      setTimer(0);
       fetchSessions(); // Refresh metadata
+    }
+
+    if (lastEvent.event === 'game:timer_tick') {
+      setTimer(lastEvent.data.secondsLeft);
+    }
+
+    if (lastEvent.event === 'game:player_ready') {
+      // Update the player's locked status in the roster
+      setPlayers(prev => prev.map(p => 
+        p.id === lastEvent.data.userId ? { ...p, isLocked: true } : p
+      ));
+    }
+
+    if (lastEvent.event === 'marketOpened') {
+      setTimer(lastEvent.data.timer || 180);
+      fetchSessions();
+    }
+
+    if (lastEvent.event === 'sessionEnded') {
+      setTimer(0);
+      fetchSessions();
+    }
+
+    if (lastEvent.event === 'leaderboardUpdate') {
+      // Could display leaderboard in facilitator view
     }
   }, [lastEvent]);
 
@@ -174,7 +201,7 @@ export default function FacilitatorDashboard() {
                  <div>
                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-[oklch(var(--accent-brand))]">Active Operation</span>
                    <h2 className="text-4xl font-black uppercase tracking-tighter italic">{activeSession?.name || 'Create New Session'}</h2>
-                   <p className="text-sm font-mono text-[oklch(var(--text-muted))] mt-2">ID: {activeSession?.code || '------'} // ROUND: {activeSession?.roundNumber || 0}/5</p>
+                   <p className="text-sm font-mono text-[oklch(var(--text-muted))] mt-2">ID: {activeSession?.code || '------'} // ROUND: {activeSession?.roundNumber || 0}/5 // TIMER: {Math.floor(timer/60)}:{String(timer%60).padStart(2,'0')}</p>
                  </div>
 
                  <div className="flex flex-wrap gap-4">

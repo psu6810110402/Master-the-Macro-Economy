@@ -126,7 +126,7 @@ export default function PlayPage() {
       case 'initialState':
         setPrices(lastEvent.data.assetPrices || {});
         setPreviousPrices(lastEvent.data.assetPrices || {});
-        setCurrentRound(lastEvent.data.round || 0);
+        setCurrentRound(lastEvent.data.currentRound || lastEvent.data.round || 0);
         if (lastEvent.data.timer) {
           setTimer(lastEvent.data.timer);
           setTimerActive(true);
@@ -146,13 +146,47 @@ export default function PlayPage() {
         if (lastEvent.data.macro) {
           setMacro(lastEvent.data.macro);
         }
+        // Don't start timer yet — timer starts after news dismiss (via marketOpened)
+        setTimerActive(false);
+        setIsReady(false);
+        
+        // Refresh portfolio
+        if (sessionId) {
+          api.get<Portfolio>(`portfolio/${sessionId}`).then(setPortfolio).catch(() => {});
+        }
+        break;
+
+      case 'game:timer_tick':
+        // Server-synced timer — overrides local countdown
+        setTimer(lastEvent.data.secondsLeft);
+        setTimerActive(lastEvent.data.secondsLeft > 0);
+        break;
+
+      case 'game:round_end':
+        setPreviousPrices(prices);
+        setPrices(lastEvent.data.assetPrices || {});
+        setTimerActive(false);
+        setTimer(0);
+        // Refresh portfolio with updated values
+        if (sessionId) {
+          api.get<Portfolio>(`portfolio/${sessionId}`).then(setPortfolio).catch(() => {});
+        }
+        break;
+
+      case 'marketOpened':
+        // Market is now open for trading — start timer
+        if (lastEvent.data.assetPrices) {
+          setPrices(lastEvent.data.assetPrices);
+        }
         if (lastEvent.data.timer) {
           setTimer(lastEvent.data.timer);
           setTimerActive(true);
         }
-        setIsReady(false); // Reset ready state on new round
-        
-        // Refresh portfolio
+        setIsReady(false);
+        break;
+
+      case 'trade:confirmed':
+        // Our trade was confirmed — refresh portfolio
         if (sessionId) {
           api.get<Portfolio>(`portfolio/${sessionId}`).then(setPortfolio).catch(() => {});
         }
@@ -170,10 +204,24 @@ export default function PlayPage() {
         break;
 
       case 'leaderboardUpdate':
+        if (lastEvent.data.rankings) {
+          setRankings(lastEvent.data.rankings);
+        }
+        break;
+
+      case 'sessionEnded':
+        setRankings(lastEvent.data.rankings || []);
+        setIsGameOverOpen(true);
+        setTimerActive(false);
+        setTimer(0);
         break;
 
       case 'portfolioUpdate':
         if (lastEvent.data) setPortfolio(lastEvent.data);
+        break;
+
+      case 'game:player_ready':
+        // Could show ready count in UI — for now just log
         break;
     }
   }, [lastEvent, sessionId]);

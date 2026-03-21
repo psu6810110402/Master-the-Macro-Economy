@@ -11,7 +11,6 @@ export const useSocket = (sessionId?: string) => {
   useEffect(() => {
     if (!sessionId) return;
 
-    // In a real app, we'd get the token from a cookie or AuthContext
     const token = localStorage.getItem('supabase_token'); 
 
     const socket = io('http://localhost:3001', {
@@ -45,8 +44,30 @@ export const useSocket = (sessionId?: string) => {
       console.error('Connection error:', error);
     });
 
-    // Central listener for game events
-    const events = ['game:round_start', 'portfolioUpdate', 'marketUpdate', 'tradeAcknowledged', 'leaderboardUpdate'];
+    // Central listener for ALL game events
+    const events = [
+      // Round lifecycle
+      'game:round_start',
+      'game:round_end',
+      'game:timer_tick',
+      // Player state
+      'game:player_ready',
+      'playerJoined',
+      'playerReadyState',
+      'player:news_ack_state',
+      // Market & Trading
+      'marketOpened',
+      'trade:confirmed',
+      'tradeAcknowledged',
+      // Portfolio & Leaderboard
+      'portfolioUpdate',
+      'marketUpdate',
+      'leaderboardUpdate',
+      // Session
+      'sessionEnded',
+      'roster:update',
+    ];
+
     events.forEach(event => {
       socket.on(event, (data) => {
         setLastEvent({ event, data });
@@ -58,9 +79,9 @@ export const useSocket = (sessionId?: string) => {
     };
   }, [sessionId]);
 
-  const emit = (event: string, data: any) => {
-    socketRef.current?.emit(event, data);
+  const emit = (event: string, data: any, callback?: (response: any) => void) => {
+    socketRef.current?.emit(event, data, callback);
   };
 
-  return { isConnected, lastEvent, emit };
+  return { isConnected, lastEvent, emit, socket: socketRef };
 };

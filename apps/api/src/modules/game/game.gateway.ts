@@ -10,7 +10,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { UseGuards, Logger, Inject, forwardRef } from '@nestjs/common';
 import { WsJwtGuard } from '../../common/guards/ws-jwt.guard';
-import { GameService } from './game.service';
+import { GameService, RoundPayload } from './game.service';
 import { TradeResolutionService } from './trade-resolution.service';
 import { LeaderboardService } from '../leaderboard/leaderboard.service';
 
@@ -25,6 +25,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly logger = new Logger(GameGateway.name);
   private timerIntervals = new Map<string, NodeJS.Timeout>();
+  // Track which session each client belongs to for disconnect handling
+  private clientSessions = new Map<string, { sessionId: string; userId: string; displayName: string }>();
 
   constructor(
     private gameService: GameService,
@@ -37,9 +39,67 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.logger.log(`Client connected: ${client.id}`);
   }
 
-  handleDisconnect(client: Socket) {
+  async handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
+
+    // Emit roster:update on disconnect
+    const session = this.clientSessions.get(client.id);
+    if (session) {
+      try {
+        const engine = await this.gameService.getOrCreateEngine(session.sessionId);
+        const state = engine.getState();
+        const rosterPlayers = state.players
+          .filter(p => p.role === 'PLAYER')
+          .map(p => ({
+            id: p.id,
+            name: p.displayName,
+            isConnected: this.isPlayerConnected(session.sessionId, p.id),
+            isLocked: state.readyPlayers.includes(p.id),
+          }));
+
+        this.server.to(session.sessionId).emit('roster:update', { players: rosterPlayers });
+      } catch (err) {
+        this.logger.error(`Error handling disconnect for ${client.id}: ${err}`);
+      }
+      this.clientSessions.delete(client.id);
+    }
   }
+
+  /**
+   * Check if a player has at least one connected socket in a room.
+   */
+  private isPlayerConnected(sessionId: string, userId: string): boolean {
+    for (const [, data] of this.clientSessions.entries()) {
+      if (data.sessionId === sessionId && data.userId === userId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Build & emit the roster for a session.
+   */
+  private async emitRosterUpdate(sessionId: string) {
+    try {
+      const engine = await this.gameService.getOrCreateEngine(sessionId);
+      const state = engine.getState();
+      const rosterPlayers = state.players
+        .filter(p => p.role === 'PLAYER')
+        .map(p => ({
+          id: p.id,
+          name: p.displayName,
+          isConnected: this.isPlayerConnected(sessionId, p.id),
+          isLocked: state.readyPlayers.includes(p.id),
+        }));
+
+      this.server.to(sessionId).emit('roster:update', { players: rosterPlayers });
+    } catch (err) {
+      this.logger.error(`Error emitting roster update: ${err}`);
+    }
+  }
+
+  // ─── JOIN SESSION ─────────────────────────────────────────────
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('joinSession')
@@ -52,6 +112,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     client.join(data.sessionId);
     
+    // Track client→session mapping for disconnect handling
+    this.clientSessions.set(client.id, {
+      sessionId: data.sessionId,
+      userId: user.id,
+      displayName: user.displayName,
+    });
+
     engine.addPlayer({
       id: user.id,
       displayName: user.displayName,
@@ -64,8 +131,41 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       state: engine.getState(),
     });
 
+    // Emit roster:update on join
+    await this.emitRosterUpdate(data.sessionId);
+
     return { status: 'ok', state: engine.getState() };
   }
+
+  // ─── START SESSION ────────────────────────────────────────────
+
+  @UseGuards(WsJwtGuard)
+  @SubscribeMessage('startSession')
+  async handleStartSession(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { sessionId: string },
+  ) {
+    const user = client.data.user;
+    if (user.role !== 'FACILITATOR' && user.role !== 'ADMIN') {
+      return { status: 'error', message: 'Unauthorized' };
+    }
+
+    const payload = await this.gameService.startSession(data.sessionId);
+    
+    // Broadcast structured payload to all session members
+    this.server.to(data.sessionId).emit('game:round_start', {
+      assetPrices: payload.assetPrices,
+      round: payload.round,
+      news: payload.news,
+      macro: payload.macro,
+      timer: payload.timer,
+      status: 'NEWS_BREAK',
+    });
+
+    return { status: 'ok', round: payload.round };
+  }
+
+  // ─── NEXT ROUND ───────────────────────────────────────────────
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('nextRound')
@@ -74,22 +174,41 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { sessionId: string },
   ) {
     const user = client.data.user;
-    // Only FACILITATOR or ADMIN can trigger next round
     if (user.role !== 'FACILITATOR' && user.role !== 'ADMIN') {
       return { status: 'error', message: 'Unauthorized' };
     }
 
-    const newState = await this.gameService.nextRound(data.sessionId);
+    const payload = await this.gameService.nextRound(data.sessionId);
     
-    // Broadcast new state including new market prices and round summary to all session participants
-    this.server.to(data.sessionId).emit('game:round_start', newState);
+    if (payload.isGameOver) {
+      // Game is over — emit sessionEnded with scores + rankings
+      const rankings = await this.leaderboardService.getRankings(data.sessionId);
+      this.server.to(data.sessionId).emit('sessionEnded', {
+        state: payload.state,
+        rankings,
+        scores: payload.scores,
+      });
+      return { status: 'ok', gameOver: true };
+    }
 
-    // Also broadcast live leaderboard rankings
+    // Broadcast new round with enriched payload
+    this.server.to(data.sessionId).emit('game:round_start', {
+      assetPrices: payload.assetPrices,
+      round: payload.round,
+      news: payload.news,
+      macro: payload.macro,
+      timer: payload.timer,
+      status: 'NEWS_BREAK',
+    });
+
+    // Also broadcast leaderboard
     const rankings = await this.leaderboardService.getRankings(data.sessionId);
     this.server.to(data.sessionId).emit('leaderboardUpdate', { rankings });
 
-    return { status: 'ok', roundNumber: newState.currentRound };
+    return { status: 'ok', roundNumber: payload.round };
   }
+
+  // ─── OPEN MARKET ──────────────────────────────────────────────
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('openMarket')
@@ -107,10 +226,17 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Start real-time timer sync
     this.startTimer(data.sessionId, 180);
 
-    this.server.to(data.sessionId).emit('marketOpened', newState);
+    this.server.to(data.sessionId).emit('marketOpened', {
+      assetPrices: newState.assetPrices,
+      round: newState.currentRound,
+      timer: 180,
+      status: 'ACTIVE',
+    });
 
     return { status: 'ok', roundNumber: newState.currentRound };
   }
+
+  // ─── TIMER MANAGEMENT ─────────────────────────────────────────
 
   private async startTimer(sessionId: string, seconds: number) {
     if (this.timerIntervals.has(sessionId)) {
@@ -129,7 +255,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         clearInterval(interval);
         this.timerIntervals.delete(sessionId);
         
-        // Auto-lock all uncommitted players
+        // Auto-lock all uncommitted players and advance
         await this.handleTimerEnd(sessionId);
       }
     }, 1000);
@@ -144,20 +270,47 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     for (const player of players) {
       if (!state.readyPlayers.includes(player.id)) {
-        // Fetch their last known valid portfolio or default to 100% cash
-        // For simplicity in this build, we'll assume they stay in their current positions
-        // and trigger a system commit
         this.logger.log(`Auto-locking player ${player.id} due to timeout`);
+        engine.setPlayerReady(player.id, true);
       }
     }
 
-    // Trigger round end sequence if everyone is now locked/ready
-    const newState = await this.gameService.nextRound(sessionId);
+    // Emit round end, then advance
     this.server.to(sessionId).emit('game:round_end', { 
-      assetPrices: newState.assetPrices,
-      round: newState.currentRound 
+      assetPrices: state.assetPrices,
+      round: state.currentRound,
     });
+
+    // Auto-advance to next round
+    const payload = await this.gameService.nextRound(sessionId);
+    
+    if (payload.isGameOver) {
+      const rankings = await this.leaderboardService.getRankings(sessionId);
+      this.server.to(sessionId).emit('sessionEnded', {
+        state: payload.state,
+        rankings,
+        scores: payload.scores,
+      });
+    } else {
+      this.server.to(sessionId).emit('game:round_start', {
+        assetPrices: payload.assetPrices,
+        round: payload.round,
+        news: payload.news,
+        macro: payload.macro,
+        timer: payload.timer,
+        status: 'NEWS_BREAK',
+      });
+    }
   }
+
+  private stopTimer(sessionId: string) {
+    if (this.timerIntervals.has(sessionId)) {
+      clearInterval(this.timerIntervals.get(sessionId)!);
+      this.timerIntervals.delete(sessionId);
+    }
+  }
+
+  // ─── TRADE COMMIT ─────────────────────────────────────────────
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('trade:commit')
@@ -191,13 +344,38 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         round: state.currentRound 
       });
 
+      // Emit roster:update on commit (player status changes to LOCKED)
+      await this.emitRosterUpdate(data.sessionId);
+
       if (engine.isEveryoneReady()) {
         this.stopTimer(data.sessionId);
-        const newState = await this.gameService.nextRound(data.sessionId);
-        this.server.to(data.sessionId).emit('game:round_end', { 
-          assetPrices: newState.assetPrices,
-          round: newState.currentRound 
+
+        // Emit round end
+        this.server.to(data.sessionId).emit('game:round_end', {
+          assetPrices: state.assetPrices,
+          round: state.currentRound,
         });
+
+        // Auto-advance to next round
+        const payload = await this.gameService.nextRound(data.sessionId);
+        
+        if (payload.isGameOver) {
+          const rankings = await this.leaderboardService.getRankings(data.sessionId);
+          this.server.to(data.sessionId).emit('sessionEnded', {
+            state: payload.state,
+            rankings,
+            scores: payload.scores,
+          });
+        } else {
+          this.server.to(data.sessionId).emit('game:round_start', {
+            assetPrices: payload.assetPrices,
+            round: payload.round,
+            news: payload.news,
+            macro: payload.macro,
+            timer: payload.timer,
+            status: 'NEWS_BREAK',
+          });
+        }
       }
 
       return { status: 'ok' };
@@ -206,12 +384,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  private stopTimer(sessionId: string) {
-    if (this.timerIntervals.has(sessionId)) {
-      clearInterval(this.timerIntervals.get(sessionId)!);
-      this.timerIntervals.delete(sessionId);
-    }
-  }
+  // ─── LEGACY TRADE (kept for backward compat) ──────────────────
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('submitTrade')
@@ -224,12 +397,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     engine.processTrade(user.id, data.trade);
 
-    // Broadcast update or acknowledgement
     this.server.to(data.sessionId).emit('tradeAcknowledged', {
       userId: user.id,
       trade: data.trade,
     });
   }
+
+  // ─── END SESSION ──────────────────────────────────────────────
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('endSession')
@@ -242,16 +416,19 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return { status: 'error', message: 'Unauthorized' };
     }
 
-    const finalState = await this.gameService.endSession(data.sessionId);
+    const payload = await this.gameService.endSession(data.sessionId);
     const rankings = await this.leaderboardService.getRankings(data.sessionId);
 
     this.server.to(data.sessionId).emit('sessionEnded', {
-      state: finalState,
+      state: payload.state,
       rankings,
+      scores: payload.scores,
     });
 
     return { status: 'ok' };
   }
+
+  // ─── PLAYER READY ─────────────────────────────────────────────
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('playerReady')
@@ -267,22 +444,42 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const engine = await this.gameService.getOrCreateEngine(data.sessionId);
     engine.setPlayerReady(user.id, data.isReady);
 
-    // Broadcast updated state (so others see who is ready)
     this.server.to(data.sessionId).emit('playerReadyState', {
       userId: user.id,
       isReady: data.isReady,
       readyPlayers: engine.getState().readyPlayers,
     });
 
+    // Roster update (LOCKED status changed)
+    await this.emitRosterUpdate(data.sessionId);
+
     if (engine.isEveryoneReady()) {
-      // Auto-trigger next round if everyone is ready
-      const newState = await this.gameService.nextRound(data.sessionId);
-      this.server.to(data.sessionId).emit('game:round_start', newState);
-      
-      const rankings = await this.leaderboardService.getRankings(data.sessionId);
-      this.server.to(data.sessionId).emit('leaderboardUpdate', { rankings });
+      const payload = await this.gameService.nextRound(data.sessionId);
+
+      if (payload.isGameOver) {
+        const rankings = await this.leaderboardService.getRankings(data.sessionId);
+        this.server.to(data.sessionId).emit('sessionEnded', {
+          state: payload.state,
+          rankings,
+          scores: payload.scores,
+        });
+      } else {
+        this.server.to(data.sessionId).emit('game:round_start', {
+          assetPrices: payload.assetPrices,
+          round: payload.round,
+          news: payload.news,
+          macro: payload.macro,
+          timer: payload.timer,
+          status: 'NEWS_BREAK',
+        });
+
+        const rankings = await this.leaderboardService.getRankings(data.sessionId);
+        this.server.to(data.sessionId).emit('leaderboardUpdate', { rankings });
+      }
     }
   }
+
+  // ─── NEWS ACK ─────────────────────────────────────────────────
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('player:ready_ack')
@@ -293,23 +490,27 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const user = client.data.user;
     const engine = await this.gameService.getOrCreateEngine(data.sessionId);
     
-    // Track that this player has seen the news
     engine.setPlayerNewsAck(user.id, true);
 
     this.logger.log(`Player ${user.id} acknowledged news for round ${data.round}`);
 
-    // Broadcast update so others (and facilitator) see who is "ready to trade"
     this.server.to(data.sessionId).emit('player:news_ack_state', {
       userId: user.id,
       acknowledged: true,
-      totalAck: engine.getState().newsAckPlayers.length
+      totalAck: engine.getState().newsAckPlayers.length,
+      totalPlayers: engine.getState().players.filter(p => p.role === 'PLAYER').length,
     });
 
     if (engine.isEveryoneNewsAcked()) {
       // Auto-open market once everyone has seen the news
       const newState = await this.gameService.openMarket(data.sessionId);
       this.startTimer(data.sessionId, 180);
-      this.server.to(data.sessionId).emit('marketOpened', newState);
+      this.server.to(data.sessionId).emit('marketOpened', {
+        assetPrices: newState.assetPrices,
+        round: newState.currentRound,
+        timer: 180,
+        status: 'ACTIVE',
+      });
     }
   }
 }
