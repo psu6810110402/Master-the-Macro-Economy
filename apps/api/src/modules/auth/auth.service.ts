@@ -1,16 +1,19 @@
 import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { PrismaClient } from '@hackanomics/database';
+import { UserRole } from '@hackanomics/database';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-
-const prisma = new PrismaClient();
+import { ConfigService } from '@nestjs/config';
+import { prisma } from '../../prisma';
 
 @Injectable()
 export class AuthService {
-  constructor(private jwtService: JwtService) {}
+  constructor(
+    public readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async validateUserService(supabaseId: string, email: string) {
     // Look up user internally
@@ -24,6 +27,8 @@ export class AuthService {
          data: {
            supabaseId,
            email,
+           firstName: email.split('@')[0],
+           lastName: '',
            displayName: email.split('@')[0], 
          }
        });
@@ -36,22 +41,26 @@ export class AuthService {
       sub: user.supabaseId, 
       email: user.email, 
       role: user.role,
-      displayName: user.displayName 
+      firstName: user.firstName,
+      lastName: user.lastName
     };
     return {
       access_token: this.jwtService.sign(payload),
     };
   }
 
-  async createGuestUser(role: string = 'PLAYER') {
+  async createGuestUser(role: UserRole = UserRole.PLAYER, firstName: string = 'Guest', lastName?: string) {
     const guestId = randomUUID();
     const email = `guest_${guestId.substring(0, 8)}@hackanomics.dev`;
+    const resolvedLastName = lastName || guestId.substring(0, 6);
     
     const user = await prisma.user.create({
       data: {
         supabaseId: guestId,
         email,
-        displayName: `Guest ${guestId.substring(0, 6)}`,
+        firstName,
+        lastName: resolvedLastName,
+        displayName: `${firstName} ${resolvedLastName}`.trim(),
         role,
       }
     });
@@ -77,9 +86,10 @@ export class AuthService {
       data: {
         email: dto.email,
         passwordHash,
-        displayName: dto.displayName,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
         supabaseId: validatedSupabaseId,
-        role: dto.role || 'PLAYER',
+        role: (dto.role as UserRole) || UserRole.PLAYER,
       },
     });
 

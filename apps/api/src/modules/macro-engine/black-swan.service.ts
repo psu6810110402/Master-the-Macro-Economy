@@ -88,4 +88,70 @@ export class BlackSwanService {
   getAllEvents(): BlackSwanEvent[] {
     return this.events;
   }
+
+  /** Get a random event for a specific tier (for facilitator injection) */
+  getRandomEventByTier(tier: 1 | 2 | 3): BlackSwanEvent {
+    const tierEvents = this.events.filter(e => e.tier === tier);
+    return tierEvents[Math.floor(Math.random() * tierEvents.length)];
+  }
+
+  /**
+   * Apply Black Swan shocks to a price map.
+   * Returns the mutated prices after applying per-class multipliers.
+   */
+  applyBlackSwan(
+    event: BlackSwanEvent,
+    currentPrices: Record<string, number>,
+    assetClassMap: Record<string, AssetClass>,
+  ): Record<string, number> {
+    const mutatedPrices = { ...currentPrices };
+
+    for (const [symbol, price] of Object.entries(currentPrices)) {
+      const assetClass = assetClassMap[symbol];
+      if (!assetClass) continue;
+
+      const shock = event.shocks[assetClass];
+      if (shock !== undefined) {
+        mutatedPrices[symbol] = Math.max(0.01, price * (1 + shock));
+        this.logger.log(`${event.name}: ${symbol} shock ${(shock * 100).toFixed(1)}% → $${mutatedPrices[symbol].toFixed(2)}`);
+      }
+    }
+
+    return mutatedPrices;
+  }
+
+  /** How many rounds a Black Swan takes to recover, by tier */
+  getRecoveryRounds(tier: 1 | 2 | 3): number {
+    switch (tier) {
+      case 1: return 2;
+      case 2: return 3;
+      case 3: return 5;
+    }
+  }
+
+  /**
+   * Apply partial recovery to prices after a Black Swan.
+   * Each round restores a fraction of the shock.
+   * @param roundsSinceEvent - how many rounds since the event fired
+   * @param totalRecoveryRounds - from getRecoveryRounds()
+   */
+  applyRecovery(
+    currentPrices: Record<string, number>,
+    prePrices: Record<string, number>,
+    roundsSinceEvent: number,
+    totalRecoveryRounds: number,
+  ): Record<string, number> {
+    if (roundsSinceEvent >= totalRecoveryRounds) return prePrices; // Full recovery
+
+    const recoveryPct = roundsSinceEvent / totalRecoveryRounds;
+    const recovered: Record<string, number> = {};
+
+    for (const [symbol, currentPrice] of Object.entries(currentPrices)) {
+      const prePrice = prePrices[symbol] || currentPrice;
+      const gap = prePrice - currentPrice;
+      recovered[symbol] = currentPrice + (gap * recoveryPct);
+    }
+
+    return recovered;
+  }
 }

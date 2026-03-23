@@ -3,8 +3,13 @@ import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
 import { ValidationPipe, BadRequestException } from '@nestjs/common';
 
+import * as cookieParserImport from 'cookie-parser';
+const cookieParser = cookieParserImport.default || cookieParserImport;
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  
+  app.use(cookieParser());
   
   // Apply Global Constraints
   app.useGlobalFilters(new GlobalExceptionFilter());

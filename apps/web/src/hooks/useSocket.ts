@@ -2,20 +2,21 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { useSession } from '@/context/SessionContext';
 
 export const useSocket = (sessionId?: string) => {
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [lastEvent, setLastEvent] = useState<{ event: string; data: any } | null>(null);
+  const { token } = useSession();
 
   useEffect(() => {
     if (!sessionId) return;
 
-    const token = localStorage.getItem('supabase_token'); 
-
     const socket = io('http://localhost:3001', {
       auth: { token },
       transports: ['websocket'],
+      withCredentials: true,
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,

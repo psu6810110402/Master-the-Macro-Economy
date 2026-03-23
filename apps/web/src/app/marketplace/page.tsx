@@ -30,7 +30,10 @@ interface Asset {
   sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 }
 
+import { useSession } from '@/context/SessionContext';
+
 export default function MarketplacePage() {
+  const { sessionId: contextSessionId, isInitialized } = useSession();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('ALL');
@@ -40,8 +43,8 @@ export default function MarketplacePage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   useEffect(() => {
-    const savedSessionId = localStorage.getItem('current_session_id');
-    setSessionId(savedSessionId);
+    if (!isInitialized) return;
+    setSessionId(contextSessionId);
 
     const fetchAssets = async () => {
       try {
@@ -61,7 +64,12 @@ export default function MarketplacePage() {
       }
     };
     fetchAssets();
-  }, []);
+  }, [contextSessionId, isInitialized]);
+
+  if (isLoading || !isInitialized) return <div className="min-h-screen bg-black flex flex-col items-center justify-center text-white italic font-black uppercase tracking-[0.5em] gap-4">
+    <div className="w-12 h-12 border-t-2 border-[oklch(var(--accent-brand))] animate-spin rounded-full" />
+    Synchronizing Tactical Interface...
+  </div>;
 
   const handleTrade = async (trade: { symbol: string; quantity: number; action: 'BUY' | 'SELL' }) => {
     if (!sessionId) {

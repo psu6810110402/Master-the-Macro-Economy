@@ -13,13 +13,16 @@ import { WsJwtGuard } from '../../common/guards/ws-jwt.guard';
 import { GameService, RoundPayload } from './game.service';
 import { TradeResolutionService } from './trade-resolution.service';
 import { LeaderboardService } from '../leaderboard/leaderboard.service';
+import { BlackSwanService } from '../macro-engine/black-swan.service';
+import { OnModuleInit } from '@nestjs/common';
+import { prisma } from '../../prisma';
 
 @WebSocketGateway({
   cors: {
     origin: '*', // In production, restrict this
   },
 })
-export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit {
   @WebSocketServer()
   server!: Server;
 
@@ -27,16 +30,49 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private timerIntervals = new Map<string, NodeJS.Timeout>();
   // Track which session each client belongs to for disconnect handling
   private clientSessions = new Map<string, { sessionId: string; userId: string; displayName: string }>();
+  // Store draft allocations for auto-lock fallback
+  private draftAllocations = new Map<string, Record<string, number>>();
+  // Fix #21: Track player activity for auto-kick
+  private lastSeen = new Map<string, number>();
 
   constructor(
     private gameService: GameService,
     private tradeResolution: TradeResolutionService,
     @Inject(forwardRef(() => LeaderboardService))
     private leaderboardService: LeaderboardService,
+    private blackSwanService: BlackSwanService,
   ) {}
 
   async handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
+  }
+
+  onModuleInit() {
+    // Fix #21: Inactivity sweeping (runs every minute)
+    setInterval(() => this.sweepInactivePlayers(), 60000);
+  }
+
+  private async sweepInactivePlayers() {
+    const now = Date.now();
+    const threshold = 5 * 60 * 1000; // 5 minutes
+
+    for (const [clientKey, timestamp] of this.lastSeen.entries()) {
+      if (now - timestamp > threshold) {
+        const [sessionId, userId] = clientKey.split(':');
+        this.logger.warn(`Player ${userId} inactive for 5m, auto-dropping.`);
+        
+        await prisma.sessionPlayer.updateMany({
+           where: { sessionId, userId },
+           data: { status: 'DROPPED' as any, isActive: false }
+        });
+
+        // Notify session
+        this.server.to(sessionId).emit('player:dropped', { userId, reason: 'INACTIVITY' });
+        await this.emitRosterUpdate(sessionId);
+        
+        this.lastSeen.delete(clientKey);
+      }
+    }
   }
 
   async handleDisconnect(client: Socket) {
@@ -45,22 +81,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Emit roster:update on disconnect
     const session = this.clientSessions.get(client.id);
     if (session) {
-      try {
-        const engine = await this.gameService.getOrCreateEngine(session.sessionId);
-        const state = engine.getState();
-        const rosterPlayers = state.players
-          .filter(p => p.role === 'PLAYER')
-          .map(p => ({
-            id: p.id,
-            name: p.displayName,
-            isConnected: this.isPlayerConnected(session.sessionId, p.id),
-            isLocked: state.readyPlayers.includes(p.id),
-          }));
-
-        this.server.to(session.sessionId).emit('roster:update', { players: rosterPlayers });
-      } catch (err) {
-        this.logger.error(`Error handling disconnect for ${client.id}: ${err}`);
-      }
+      // Don't auto-drop immediately on disconnect, wait for 5m ping timeout
+      // but mark as disconnected in the roster visually
+      this.lastSeen.set(`${session.sessionId}:${session.userId}`, Date.now()); 
+      await this.emitRosterUpdate(session.sessionId);
       this.clientSessions.delete(client.id);
     }
   }
@@ -121,8 +145,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     engine.addPlayer({
       id: user.id,
-      displayName: user.displayName,
-      role: user.role,
+      displayName: user.displayName || user.firstName || 'Guest',
+      role: user.role as any,
     });
 
     this.server.to(data.sessionId).emit('playerJoined', {
@@ -133,8 +157,17 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // Emit roster:update on join
     await this.emitRosterUpdate(data.sessionId);
+    
+    const session = await prisma.gameSession.findUnique({ where: { id: data.sessionId } });
 
-    return { status: 'ok', state: engine.getState() };
+    return { 
+      status: 'ok', 
+      state: { 
+        ...engine.getState(), 
+        round: engine.getState().currentRound, // Normalize for frontend
+        totalRounds: session?.totalRounds || 5 
+      } 
+    };
   }
 
   // ─── START SESSION ────────────────────────────────────────────
@@ -263,17 +296,70 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.timerIntervals.set(sessionId, interval);
   }
 
-  private async handleTimerEnd(sessionId: string) {
+  /**
+   * Auto-lock all uncommitted players using their draft allocation or a default.
+   */
+  private async autoLockUncommitted(sessionId: string) {
     const engine = await this.gameService.getOrCreateEngine(sessionId);
     const state = engine.getState();
     const players = state.players.filter(p => p.role === 'PLAYER');
+    const defaultAllocation: Record<string, number> = {
+      TECH: 15, INDUSTRIAL: 15, CONSUMER: 15, BOND: 15, GOLD: 15, CRYPTO: 15, CASH: 10,
+    };
 
     for (const player of players) {
       if (!state.readyPlayers.includes(player.id)) {
-        this.logger.log(`Auto-locking player ${player.id} due to timeout`);
+        this.logger.log(`Auto-locking player ${player.id} due to timeout/forceSkip`);
+        
+        const draftKey = `${sessionId}:${player.id}`;
+        let allocation = this.draftAllocations.get(draftKey);
+
+        if (!allocation) {
+          if (state.currentRound === 1) {
+            // Round 1 fallback: 100% CASH
+            allocation = { TECH: 0, INDUSTRIAL: 0, CONSUMER: 0, BOND: 0, GOLD: 0, CRYPTO: 0, CASH: 100 };
+          } else {
+            // Previous round fallback
+            const prevRecord = await prisma.tradeRecord.findFirst({
+              where: { sessionId, playerId: player.id, round: state.currentRound - 1 }
+            });
+            if (prevRecord && prevRecord.portfolio) {
+              try {
+                allocation = JSON.parse(prevRecord.portfolio);
+              } catch (e) {
+                allocation = { TECH: 0, INDUSTRIAL: 0, CONSUMER: 0, BOND: 0, GOLD: 0, CRYPTO: 0, CASH: 100 };
+              }
+            } else {
+              allocation = { TECH: 0, INDUSTRIAL: 0, CONSUMER: 0, BOND: 0, GOLD: 0, CRYPTO: 0, CASH: 100 };
+            }
+          }
+        }
+
+        try {
+          await this.tradeResolution.commitPortfolio(
+            sessionId,
+            player.id,
+            state.currentRound,
+            allocation!,
+            state.assetPrices,
+            true, // isAutoLock
+          );
+        } catch (err) {
+          this.logger.error(`Failed to auto-lock player ${player.id}: ${err}`);
+        }
+
         engine.setPlayerReady(player.id, true);
+        this.draftAllocations.delete(draftKey);
       }
     }
+  }
+
+  private async handleTimerEnd(sessionId: string) {
+    // Auto-lock all uncommitted players with DB persist
+    await this.autoLockUncommitted(sessionId);
+
+    const engine = await this.gameService.getOrCreateEngine(sessionId);
+    const state = engine.getState();
 
     // Emit round end, then advance
     this.server.to(sessionId).emit('game:round_end', { 
@@ -319,8 +405,16 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { sessionId: string; allocation: any },
   ) {
     const user = client.data.user;
+    if (!data?.sessionId) {
+      return { status: 'error', message: 'Session ID is required' };
+    }
     const engine = await this.gameService.getOrCreateEngine(data.sessionId);
     const state = engine.getState();
+
+    // Double-commit guard
+    if (state.readyPlayers.includes(user.id)) {
+      return { status: 'error', message: 'Already committed for this round' };
+    }
 
     try {
       const record = await this.tradeResolution.commitPortfolio(
@@ -384,23 +478,86 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  // ─── LEGACY TRADE (kept for backward compat) ──────────────────
-
+  // ─── PLAYER PING ──────────────────────────────────────────────
   @UseGuards(WsJwtGuard)
-  @SubscribeMessage('submitTrade')
-  async handleTrade(
+  @SubscribeMessage('player:ping')
+  async handlePlayerPing(@ConnectedSocket() client: Socket, @MessageBody() data: { sessionId: string }) {
+    const user = client.data.user;
+    this.lastSeen.set(`${data.sessionId}:${user.id}`, Date.now());
+    return { status: 'ok' };
+  }
+
+  // ─── TRADE DRAFT UPDATE ────────────────────────────────────────
+  @UseGuards(WsJwtGuard)
+  @SubscribeMessage('trade:update')
+  async handleTradeUpdate(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { sessionId: string; trade: any },
+    @MessageBody() data: { sessionId: string; allocation: Record<string, number> },
   ) {
     const user = client.data.user;
+    // Store draft in memory for auto-lock fallback
+    this.draftAllocations.set(`${data.sessionId}:${user.id}`, data.allocation);
+    return { status: 'ok' };
+  }
+
+  // ─── FORCE SKIP (Facilitator/Admin) ───────────────────────────
+
+  @UseGuards(WsJwtGuard)
+  @SubscribeMessage('forceSkip')
+  async handleForceSkip(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { sessionId: string },
+  ) {
+    const user = client.data.user;
+    if (user.role !== 'FACILITATOR' && user.role !== 'ADMIN') {
+      return { status: 'error', message: 'Unauthorized' };
+    }
+
+    // Stop the timer
+    this.stopTimer(data.sessionId);
+
     const engine = await this.gameService.getOrCreateEngine(data.sessionId);
+    const state = engine.getState();
+    const playerIds = state.players.filter(p => p.role === 'PLAYER').map(p => p.id);
+    const missingCount = playerIds.length - state.readyPlayers.length;
 
-    engine.processTrade(user.id, data.trade);
+    // Auto-lock all uncommitted players
+    await this.autoLockUncommitted(data.sessionId);
 
-    this.server.to(data.sessionId).emit('tradeAcknowledged', {
-      userId: user.id,
-      trade: data.trade,
+    if (missingCount > 0) {
+      this.logger.log(`Force skip auto-locked ${missingCount} players, emitting round_end.`);
+      this.server.to(data.sessionId).emit('game:round_end', { 
+        assetPrices: engine.getState().assetPrices,
+        round: engine.getState().currentRound,
+      });
+    }
+
+    // Advance to next round
+    const payload = await this.gameService.nextRound(data.sessionId);
+    
+    if (payload.isGameOver) {
+      const rankings = await this.leaderboardService.getRankings(data.sessionId);
+      this.server.to(data.sessionId).emit('sessionEnded', {
+        state: payload.state,
+        rankings,
+        scores: payload.scores,
+      });
+      return { status: 'ok', gameOver: true };
+    }
+
+    this.server.to(data.sessionId).emit('game:round_start', {
+      assetPrices: payload.assetPrices,
+      round: payload.round,
+      news: payload.news,
+      macro: payload.macro,
+      timer: payload.timer,
+      status: 'NEWS_BREAK',
     });
+
+    const rankings = await this.leaderboardService.getRankings(data.sessionId);
+    this.server.to(data.sessionId).emit('leaderboardUpdate', { rankings });
+
+    return { status: 'ok', roundNumber: payload.round };
   }
 
   // ─── END SESSION ──────────────────────────────────────────────
@@ -512,5 +669,78 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         status: 'ACTIVE',
       });
     }
+  }
+
+  // ─── ADMIN INJECTIONS ─────────────────────────────────────────
+
+  @UseGuards(WsJwtGuard)
+  @SubscribeMessage('admin:inject_news')
+  async handleAdminInjectNews(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { sessionId: string; headline: string; body: string },
+  ) {
+    const user = client.data.user;
+    // Check if facilitator
+    const session = await prisma.gameSession.findUnique({ where: { id: data.sessionId } });
+    if (!session || session.facilitatorId !== user.id) return;
+
+    this.logger.log(`Facilitator injected custom news: ${data.headline}`);
+
+    // Set status to NEWS_BREAK
+    const engine = await this.gameService.getOrCreateEngine(data.sessionId);
+    engine.updateStatus('NEWS_BREAK');
+    engine.getState().newsAckPlayers = []; // Reset acks
+
+    const customNews = {
+      headline: data.headline,
+      body: data.body,
+      hint: 'Facilitator override event',
+      macroDeltas: {}
+    };
+
+    const currentMacro = await prisma.macroState.findUnique({
+      where: { sessionId_roundNumber: { sessionId: data.sessionId, roundNumber: engine.getState().currentRound } }
+    });
+
+    // Broadcast to all players
+    this.server.to(data.sessionId).emit('game:round_start', {
+      round: engine.getState().currentRound,
+      news: customNews,
+      macro: currentMacro || {},
+      timer: 0,
+      status: 'NEWS_BREAK'
+    });
+  }
+
+  @UseGuards(WsJwtGuard)
+  @SubscribeMessage('admin:inject_black_swan')
+  async handleAdminInjectBlackSwan(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { sessionId: string; eventName: string },
+  ) {
+    const user = client.data.user;
+    const session = await prisma.gameSession.findUnique({ where: { id: data.sessionId } });
+    if (!session || session.facilitatorId !== user.id) return;
+
+    this.logger.log(`Facilitator triggered Black Swan: ${data.eventName}`);
+
+    const event = this.blackSwanService.getEventByName(data.eventName);
+    const tier = event?.tier || 1;
+
+    // Update macro DB record
+    await prisma.macroState.update({
+      where: { sessionId_roundNumber: { sessionId: data.sessionId, roundNumber: session.roundNumber } },
+      data: {
+        blackSwanActive: true,
+        blackSwanEvent: data.eventName,
+        blackSwanTier: tier,
+      }
+    });
+
+    // Notify clients to show extreme UI/alarms instantly if needed
+    this.server.to(data.sessionId).emit('game:black_swan_triggered', {
+      eventName: data.eventName,
+      tier,
+    });
   }
 }

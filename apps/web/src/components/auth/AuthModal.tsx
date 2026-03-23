@@ -6,13 +6,17 @@ import { X, Terminal as TerminalIcon, Shield, ShieldCheck } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@hackanomics/ui';
 import { api } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+import { useSession } from '@/context/SessionContext';
+
 export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
+  const { setRole: setContextRole, setSessionId: setContextSessionId } = useSession();
   const [activeTab, setActiveTab] = useState<'PLAYER' | 'STAFF'>('PLAYER');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,20 +34,35 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   // Clean error on tab switch
   useEffect(() => setError(null), [activeTab]);
 
+  // Handle ESC key to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   const handlePlayerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
     try {
-      const response = await api.post<{ access_token: string }>('auth/guest', { 
+      // 1. Sign in via API Guest route
+      await api.post('auth/guest', {
         role: 'PLAYER',
-        displayName: `${firstName} ${lastName}`.trim()
+        firstName,
+        lastName
       });
-      localStorage.setItem('supabase_token', response.access_token);
-      localStorage.setItem('session_role', 'PLAYER');
+
+      setContextRole('PLAYER');
       
-      // Join session
-      await api.post('session/join', { code: inviteCode.toUpperCase() });
+      // 2. Join session (this will also trigger the backend to sync the user via the Guard)
+      const result = await api.post<{ sessionId: string }>('session/join', { code: inviteCode.toUpperCase() });
+      
+      setContextSessionId(result.sessionId);
       
       router.push('/lobby');
     } catch (err: any) {
@@ -58,16 +77,25 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await api.post<{ access_token: string }>('auth/login', { email, password });
-      localStorage.setItem('supabase_token', response.access_token);
-      
+      await api.post('auth/login', {
+        email,
+        password
+      });
+
       // Fetch role for redirection
-      const user = await api.get<{ role: string }>('auth/me');
-      localStorage.setItem('session_role', user.role);
+      let userRole = 'PLAYER';
+      try {
+        const user = await api.get<{ role: string }>('auth/me');
+        userRole = user.role;
+      } catch (e) {
+        console.warn('Could not fetch exact role from API');
+      }
+
+      setContextRole(userRole as any);
       
-      if (user.role === 'ADMIN') {
+      if (userRole === 'ADMIN') {
         router.push('/admin');
-      } else if (user.role === 'FACILITATOR') {
+      } else if (userRole === 'FACILITATOR') {
         router.push('/facilitator');
       } else {
         router.push('/lobby');

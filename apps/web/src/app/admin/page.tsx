@@ -21,6 +21,12 @@ export default function AdminDashboard() {
   const [pingResult, setPingResult] = useState<any>(null);
   const [isPinging, setIsPinging] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Search & Filter State
+  const [searchTerm, setSearchTerm] = useState('');
+  const [logPage, setLogPage] = useState(1);
+  const LOGS_PER_PAGE = 10;
+  
   const router = useRouter();
 
   useEffect(() => {
@@ -76,6 +82,45 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await api.post('auth/logout');
+      router.push('/');
+    } catch (err) {
+      console.error('Logout failed', err);
+      router.push('/');
+    }
+  };
+
+  const exportLogsToCSV = () => {
+    const headers = ['Timestamp', 'Action', 'Actor', 'Resource'];
+    const rows = logs.map(log => [
+      new Date(log.createdAt).toLocaleString(),
+      log.action,
+      log.actor ? `${log.actor.firstName} ${log.actor.lastName}` : 'SYSTEM',
+      log.resource
+    ]);
+    
+    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `finsim_audit_export_${new Date().toISOString()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const filteredLogs = logs.filter(log => 
+    log.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (log.actor?.displayName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    log.resource.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const paginatedLogs = filteredLogs.slice((logPage - 1) * LOGS_PER_PAGE, logPage * LOGS_PER_PAGE);
+  const totalPages = Math.ceil(filteredLogs.length / LOGS_PER_PAGE);
+
   if (isLoading) return <div className="min-h-screen bg-black flex items-center justify-center text-white italic font-black uppercase tracking-[0.5em]">Authenticating Level 3...</div>;
 
   const renderSidebar = () => (
@@ -120,7 +165,7 @@ export default function AdminDashboard() {
              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[oklch(var(--text-muted))]">Level 3 Complete Override</span>
            </div>
         </div>
-        <Button onClick={() => { localStorage.removeItem('supabase_token'); router.push('/'); }} className="bg-[oklch(var(--bg-secondary))] text-[10px] uppercase font-black tracking-widest px-6 hover:bg-[oklch(var(--status-error))] hover:text-white transition-colors">Terminate Session (Logout)</Button>
+        <Button onClick={handleLogout} className="bg-[oklch(var(--bg-secondary))] text-[10px] uppercase font-black tracking-widest px-6 hover:bg-[oklch(var(--status-error))] hover:text-white transition-colors">Terminate Session (Logout)</Button>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
@@ -237,8 +282,30 @@ export default function AdminDashboard() {
                   <h2 className="text-xs font-black uppercase tracking-[0.3em] flex items-center gap-2">
                      <Search size={14} className="text-[oklch(var(--accent-brand))]" /> Master Behavior Log
                   </h2>
-                  <div className="text-[10px] font-bold uppercase tracking-widest px-3 py-1 border border-[oklch(var(--status-success)/0.5)] text-[oklch(var(--status-success))]">PDPA Sweeper ON</div>
+                  <div className="flex items-center gap-4">
+                    <Button 
+                      onClick={exportLogsToCSV}
+                      className="bg-white text-black text-[9px] font-black uppercase tracking-widest px-4 h-8 hover:bg-[oklch(var(--accent-brand))] hover:text-white"
+                    >
+                      Export CSV
+                    </Button>
+                    <div className="text-[10px] font-bold uppercase tracking-widest px-3 py-1 border border-[oklch(var(--status-success)/0.5)] text-[oklch(var(--status-success))]">PDPA Sweeper ON</div>
+                  </div>
                 </div>
+
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[oklch(var(--text-muted))]" size={14} />
+                    <input 
+                      type="text"
+                      placeholder="Filter by event, actor, or resource..."
+                      value={searchTerm}
+                      onChange={(e) => { setSearchTerm(e.target.value); setLogPage(1); }}
+                      className="w-full bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] py-3 pl-10 pr-4 text-[10px] font-black uppercase tracking-widest focus:border-[oklch(var(--accent-brand))] outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
                 <div className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] overflow-hidden">
                   <table className="w-full text-left border-collapse">
                     <thead>
@@ -250,16 +317,47 @@ export default function AdminDashboard() {
                       </tr>
                     </thead>
                     <tbody className="text-[10px] font-bold font-mono">
-                      {logs.map((log) => (
-                        <tr key={log.id} className="border-b border-[oklch(var(--border-subtle))] hover:bg-white/5 transition-colors">
-                          <td className="px-6 py-4 opacity-40">{new Date(log.createdAt).toLocaleString()}</td>
-                          <td className="px-6 py-4 text-[oklch(var(--accent-brand))]">{log.action}</td>
-                          <td className="px-6 py-4">{log.actor?.displayName || 'SYSTEM'}</td>
-                          <td className="px-6 py-4 truncate max-w-[200px]">{log.resource}</td>
+                      {paginatedLogs.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-6 py-12 text-center opacity-20 uppercase tracking-widest">No matching intel found</td>
                         </tr>
-                      ))}
+                      ) : (
+                        paginatedLogs.map((log) => (
+                          <tr key={log.id} className="border-b border-[oklch(var(--border-subtle))] hover:bg-white/5 transition-colors">
+                            <td className="px-6 py-4 opacity-40">{new Date(log.createdAt).toLocaleString()}</td>
+                            <td className="px-6 py-4 text-[oklch(var(--accent-brand))]">{log.action}</td>
+                            <td className="px-6 py-4">{log.actor ? `${log.actor.firstName} ${log.actor.lastName}` : 'SYSTEM'}</td>
+                            <td className="px-6 py-4 truncate max-w-[200px]">{log.resource}</td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
+                  
+                  {totalPages > 1 && (
+                    <div className="px-6 py-4 bg-[oklch(var(--bg-main))] border-t border-[oklch(var(--border-subtle))] flex items-center justify-between">
+                      <div className="text-[9px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">
+                        Showing {(logPage-1)*LOGS_PER_PAGE + 1} to {Math.min(logPage*LOGS_PER_PAGE, filteredLogs.length)} of {filteredLogs.length} events
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          disabled={logPage === 1}
+                          onClick={() => setLogPage(p => Math.max(1, p - 1))}
+                          className="px-3 h-8 text-[9px] uppercase font-black"
+                        >
+                          Prev
+                        </Button>
+                        <span className="text-[10px] font-black px-4">{logPage} / {totalPages}</span>
+                        <Button 
+                          disabled={logPage === totalPages}
+                          onClick={() => setLogPage(p => Math.min(totalPages, p + 1))}
+                          className="px-3 h-8 text-[9px] uppercase font-black"
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}

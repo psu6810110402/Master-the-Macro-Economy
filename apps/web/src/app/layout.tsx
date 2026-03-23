@@ -26,6 +26,8 @@ export const metadata: Metadata = {
   description: 'An educational investment simulation platform.',
 };
 
+import { SessionProvider } from '@/context/SessionContext';
+
 export default function RootLayout({
   children,
 }: {
@@ -34,7 +36,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${outfit.variable} ${jetbrains.variable}`}>
       <body className="antialiased min-h-screen flex flex-col">
-        {children}
+        <SessionProvider>
+          {children}
+        </SessionProvider>
       </body>
     </html>
   );

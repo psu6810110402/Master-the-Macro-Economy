@@ -1,7 +1,5 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { PrismaClient } from '@hackanomics/database';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../prisma';
 
 @Injectable()
 export class AdminService {

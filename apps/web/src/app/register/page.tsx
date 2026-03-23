@@ -5,15 +5,20 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { UserPlus, Mail, Lock, User as UserIcon, Loader2, ChevronRight, Terminal as TerminalIcon, ShieldCheck } from 'lucide-react';
 import { Button } from '@hackanomics/ui';
 import { api } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+import { useSession } from '@/context/SessionContext';
+
 export default function RegisterPage() {
+  const { setRole: setContextRole } = useSession();
   const [role, setRole] = useState<'PLAYER' | 'FACILITATOR' | null>(null);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
-    displayName: ''
+    firstName: '',
+    lastName: ''
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,15 +29,19 @@ export default function RegisterPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await api.post<{ access_token: string }>('auth/register', {
-        ...formData,
-        role,
+      await api.post<{ access_token: string }>('auth/register', {
+        email: formData.email,
+        password: formData.password,
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        role: role || 'PLAYER',
       });
-      localStorage.setItem('supabase_token', response.access_token);
+
+      setContextRole(role || 'PLAYER');
+
       router.push('/lobby');
     } catch (err: any) {
-      setError(err.message || 'Registration failed. Please try again.');
-      console.error('Registration failed:', err);
+      setError(err.message || 'Provisioning failed. Subsystem Error.');
     } finally {
       setIsLoading(false);
     }
@@ -137,18 +146,33 @@ export default function RegisterPage() {
               </div>
 
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-[oklch(var(--text-muted))]">Alias / Display Name</label>
-                  <div className="relative">
-                    <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-[oklch(var(--text-muted))]" size={16} />
-                    <input 
-                      type="text"
-                      required
-                      value={formData.displayName}
-                      onChange={(e) => setFormData(prev => ({ ...prev, displayName: e.target.value }))}
-                      className={`w-full bg-[oklch(var(--bg-main))] border border-[oklch(var(--border-subtle))] py-4 pl-10 pr-4 text-xs font-bold uppercase tracking-widest outline-none transition-colors ${role === 'FACILITATOR' ? 'focus:border-[oklch(var(--accent-up))]' : 'focus:border-[oklch(var(--accent-brand))]'}`}
-                      placeholder="CALLSIGN_88"
-                    />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-[oklch(var(--text-muted))]">First Name</label>
+                    <div className="relative">
+                      <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-[oklch(var(--text-muted))]" size={16} />
+                      <input 
+                        type="text"
+                        required
+                        value={formData.firstName}
+                        onChange={(e) => setFormData(prev => ({ ...prev, firstName: e.target.value }))}
+                        className={`w-full bg-[oklch(var(--bg-main))] border border-[oklch(var(--border-subtle))] py-4 pl-10 pr-4 text-xs font-bold uppercase tracking-widest outline-none transition-colors ${role === 'FACILITATOR' ? 'focus:border-[oklch(var(--accent-up))]' : 'focus:border-[oklch(var(--accent-brand))]'}`}
+                        placeholder="JOHN"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-[oklch(var(--text-muted))]">Last Name</label>
+                    <div className="relative">
+                      <input 
+                        type="text"
+                        required
+                        value={formData.lastName}
+                        onChange={(e) => setFormData(prev => ({ ...prev, lastName: e.target.value }))}
+                        className={`w-full bg-[oklch(var(--bg-main))] border border-[oklch(var(--border-subtle))] py-4 px-4 text-xs font-bold uppercase tracking-widest outline-none transition-colors ${role === 'FACILITATOR' ? 'focus:border-[oklch(var(--accent-up))]' : 'focus:border-[oklch(var(--accent-brand))]'}`}
+                        placeholder="DOE"
+                      />
+                    </div>
                   </div>
                 </div>
 

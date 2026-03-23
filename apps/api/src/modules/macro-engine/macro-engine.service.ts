@@ -1,7 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaClient } from '@hackanomics/database';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../prisma';
 
 export interface AssetSensitivity {
   r: number;   // Interest Rate sensitivity
@@ -13,50 +11,38 @@ export interface AssetSensitivity {
 export class MacroEngineService {
   private readonly logger = new Logger(MacroEngineService.name);
 
-  // High-Fidelity Impact Matrix: r (Rates), pi (Inflation), g (GDP)
-  private readonly sensitivityMatrix: Record<string, AssetSensitivity> = {
-    'TECH_GROWTH':    { r: -3.2, pi: -1.8, g: 3.5 }, // High growth, sensitive to rates
-    'TECH_STALWART':  { r: -1.8, pi: -0.5, g: 1.8 }, // Big tech, more resilient
-    'FINANCE':        { r: 2.5,  pi: 0.5,  g: 1.2 }, // Benefits from rates
-    'ENERGY':         { r: -0.5, pi: 3.5,  g: 1.0 }, // Inflation hedge (Oil/Gas)
-    'HEALTHCARE':     { r: -0.8, pi: -0.2, g: 0.5 }, // Defensive
-    'CONSUMER_STAP':  { r: -0.5, pi: 1.2,  g: 0.3 }, // Defensive (Food/Bev)
-    'CONSUMER_DISC':  { r: -2.0, pi: -1.0, g: 2.5 }, // Cyclical
-    'INDUSTRIAL':     { r: -1.5, pi: 1.0,  g: 2.2 }, // Capital intensive
-    'UTILITIES':      { r: -2.5, pi: 0.8,  g: 0.2 }, // Rate sensitive, defensive
-    'REIT_RES':       { r: -3.5, pi: 2.5,  g: 1.5 }, // High debt, inflation hedge
-    'BOND_LONG':      { r: 4.5,  pi: -3.0, g: -1.0 },
-    'CRYPTO_ALT':     { r: -5.0, pi: 1.5,  g: 2.0 },
-    'COMMODITY_MET':  { r: -1.0, pi: 2.8,  g: -0.5 }, // Gold/Silver
+  // Default sensitivities by asset type (fallback when DB values are all 0)
+  private readonly typeFallback: Record<string, AssetSensitivity> = {
+    'STOCK':       { r: -1.8, pi: -0.5, g: 1.8 },
+    'CRYPTO':      { r: -5.0, pi: 1.5,  g: 2.0 },
+    'BOND':        { r: 4.5,  pi: -3.0, g: -1.0 },
+    'COMMODITY':   { r: -1.0, pi: 2.8,  g: -0.5 },
+    'REAL_ESTATE': { r: -3.5, pi: 2.5,  g: 1.5 },
   };
 
-  public getSensitivity(symbol: string, type: string): AssetSensitivity {
-    // Map individual assets to their sector sensitivity
-    const sectorMap: Record<string, string> = {
-      // Tech
-      'AAPL': 'TECH_STALWART', 'MSFT': 'TECH_STALWART', 'NVDA': 'TECH_GROWTH', 'TSLA': 'TECH_GROWTH',
-      // Finance
-      'JPM': 'FINANCE', 'GS': 'FINANCE', 'V': 'FINANCE',
-      // Energy
-      'XOM': 'ENERGY', 'CVX': 'ENERGY', 'BP': 'ENERGY', 'OIL': 'ENERGY',
-      // Consumer
-      'PG': 'CONSUMER_STAP', 'KO': 'CONSUMER_STAP', 'AMZN': 'CONSUMER_DISC', 'NKE': 'CONSUMER_DISC',
-      // Bonds/Commodities
-      'TLT': 'BOND_LONG', 'GOLD': 'COMMODITY_MET', 'BTC': 'CRYPTO_ALT', 'ETH': 'CRYPTO_ALT',
-      'VNQ': 'REIT_RES',
-    };
-
-    const sectorId = sectorMap[symbol];
-    if (sectorId && this.sensitivityMatrix[sectorId]) {
-      return this.sensitivityMatrix[sectorId];
+  /**
+   * DB-first sensitivity lookup: reads per-asset values from the Asset table.
+   * Falls back to type-based defaults if DB values are all zero.
+   */
+  public async getSensitivityFromDB(symbol: string, type: string): Promise<AssetSensitivity> {
+    try {
+      const asset = await prisma.asset.findUnique({ where: { symbol } });
+      if (asset && (asset.irSensitivity !== 0 || asset.infSensitivity !== 0 || asset.gdpSensitivity !== 0)) {
+        return {
+          r: asset.irSensitivity,
+          pi: asset.infSensitivity,
+          g: asset.gdpSensitivity,
+        };
+      }
+    } catch (err) {
+      this.logger.warn(`DB sensitivity lookup failed for ${symbol}, using type fallback`);
     }
+    return this.typeFallback[type] || this.typeFallback['STOCK'];
+  }
 
-    // Dynamic Fallback based on type
-    if (type === 'CRYPTO') return this.sensitivityMatrix['CRYPTO_ALT'];
-    if (type === 'BOND') return this.sensitivityMatrix['BOND_LONG'];
-    if (type === 'COMMODITY') return this.sensitivityMatrix['ENERGY'];
-    
-    return this.sensitivityMatrix['TECH_STALWART'];
+  /** Sync fallback — uses type-based defaults only (for callers that can't await) */
+  public getSensitivity(_symbol: string, type: string): AssetSensitivity {
+    return this.typeFallback[type] || this.typeFallback['STOCK'];
   }
 
   /**

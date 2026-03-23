@@ -12,29 +12,33 @@ import {
   Key,
   Globe2,
   Lock,
-  Loader2
+  Loader2,
+  BookOpen
 } from 'lucide-react';
 import { Button } from '@hackanomics/ui';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { api, ApiError } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 
+import { useSession } from '@/context/SessionContext';
+
 export default function LobbyPage() {
+  const { setSessionId, setRole: setContextRole, isInitialized } = useSession();
   const [role, setRole] = useState<'PLAYER' | 'FACILITATOR' | null>(null);
   const [sessionCode, setSessionCode] = useState('');
   const [sessionName, setSessionName] = useState('');
   const [scenarioId, setScenarioId] = useState('TECH_CRISIS');
+  const [format, setFormat] = useState('STANDARD');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  // Auth guard — redirect if not logged in
   useEffect(() => {
-    const token = localStorage.getItem('supabase_token');
-    if (!token) {
+    if (!isInitialized) return;
+    api.get('auth/me').catch(() => {
       router.push('/login?redirect=/lobby');
-    }
-  }, [router]);
+    });
+  }, [router, isInitialized]);
 
   const handleJoinSession = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,8 +51,8 @@ export default function LobbyPage() {
         code: sessionCode.toUpperCase(),
       });
       
-      localStorage.setItem('current_session_id', session.sessionId);
-      localStorage.setItem('session_role', 'PLAYER');
+      setSessionId(session.sessionId);
+      setContextRole('PLAYER');
       router.push('/dashboard');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to join session');
@@ -68,10 +72,11 @@ export default function LobbyPage() {
         name: sessionName,
         maxPlayers: 50,
         scenarioId,
+        format,
       });
       
-      localStorage.setItem('current_session_id', session.id);
-      localStorage.setItem('session_role', 'FACILITATOR');
+      setSessionId(session.id);
+      setContextRole('FACILITATOR');
       router.push('/admin');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to create session');
@@ -79,6 +84,11 @@ export default function LobbyPage() {
       setIsProcessing(false);
     }
   };
+
+  if (!isInitialized) return <div className="min-h-screen bg-black flex flex-col items-center justify-center text-white italic font-black uppercase tracking-[0.5em] gap-4">
+    <div className="w-12 h-12 border-t-2 border-[oklch(var(--accent-brand))] animate-spin rounded-full" />
+    Synchronizing Tactical Interface...
+  </div>;
 
   return (
     <DashboardLayout title="Universal Lobby">
@@ -197,6 +207,20 @@ export default function LobbyPage() {
                       <option value="TECH_CRISIS">The Tech Bubble Crisis</option>
                       <option value="GLOBAL_CONFLICT">Geopolitical Meltdown</option>
                       <option value="CRYPTO_WINTER">The Great Crypto Winter</option>
+                    </select>
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-[oklch(var(--text-muted))]">
+                      ▼
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <select
+                      value={format}
+                      onChange={(e) => setFormat(e.target.value)}
+                      className="w-full bg-[oklch(var(--bg-main))] border border-[oklch(var(--border-subtle))] py-4 px-4 text-sm font-black uppercase tracking-[0.2em] focus:border-[oklch(var(--accent-up))] outline-none transition-all appearance-none cursor-pointer"
+                    >
+                      <option value="SHORT">Short Play (3 Rounds)</option>
+                      <option value="STANDARD">Standard Play (5 Rounds)</option>
+                      <option value="FULL">Full Play (7 Rounds)</option>
                     </select>
                     <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-[oklch(var(--text-muted))]">
                       ▼

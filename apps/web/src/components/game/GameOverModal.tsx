@@ -2,16 +2,19 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Trophy, ArrowRight, TrendingUp, DollarSign, Award, Activity, Loader2, LineChart } from 'lucide-react';
+import { Trophy, ArrowRight, TrendingUp, DollarSign, Award, Activity, Loader2, LineChart, PieChart, BarChart } from 'lucide-react';
 import { Button } from '@hackanomics/ui';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { useEffect, useState, useMemo } from 'react';
 import PerformanceChart from './PerformanceChart';
+import AllocationPieChart from './AllocationPieChart';
+import ReturnBarChart from './ReturnBarChart';
 
 interface PlayerRanking {
   userId: string;
-  displayName: string;
+  firstName: string;
+  lastName: string;
   totalValue: number;
   returnPct: number;
   rank: number;
@@ -25,32 +28,86 @@ interface GameOverModalProps {
   sessionId: string;
 }
 
-export default function GameOverModal({ isOpen, rankings, currentUserId, sessionId }: GameOverModalProps) {
+export default function GameOverModal({ isOpen, onClose, rankings, currentUserId, sessionId }: GameOverModalProps) {
   const myResult = rankings.find(r => r.userId === currentUserId);
   const top3 = rankings.slice(0, 3);
 
-  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<{ debrief: string; grades?: { [key: string]: string } } | null>(null);
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
 
   const [chartData, setChartData] = useState<any[]>([]);
+  const [allocation, setAllocation] = useState<any>(null);
+
+  const barChartData = useMemo(() => {
+    if (!chartData || chartData.length < 2) return [];
+    const data = [];
+    for (let i = 1; i < chartData.length; i++) {
+      const prev = chartData[i - 1].value;
+      const curr = chartData[i].value;
+      const pct = prev > 0 ? ((curr - prev) / prev) * 100 : 0;
+      data.push({ round: chartData[i].round, returnPct: pct });
+    }
+    return data;
+  }, [chartData]);
+
+  const assetAllocationData = useMemo(() => {
+    if (!allocation) return [];
+    const data: Array<{ name: string; value: number; color?: string }> = [{ name: 'Cash', value: Number(allocation.cashBalance), color: 'oklch(var(--bg-tertiary))' }];
+    allocation.holdings.forEach((h: any) => {
+      data.push({ name: h.asset.symbol, value: h.currentValue });
+    });
+    return data.filter(d => d.value > 0);
+  }, [allocation]);
+
+  const sectorAllocationData = useMemo(() => {
+    if (!allocation) return [];
+    const sectors: Record<string, number> = { 'CASH': Number(allocation.cashBalance) };
+    allocation.holdings.forEach((h: any) => {
+      const type = h.asset.type;
+      sectors[type] = (sectors[type] || 0) + h.currentValue;
+    });
+    return Object.entries(sectors)
+      .filter(([_, val]) => val > 0)
+      .map(([name, value]) => ({ name, value }));
+  }, [allocation]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (isOpen && sessionId) {
       // Fetch AI Analysis
       setIsLoadingAnalysis(true);
-      api.get<{ analysis: string }>(`portfolio/${sessionId}/analysis`)
-        .then(res => setAnalysis(res.analysis))
+      api.get<{ analysis: { debrief: string; grades?: { [key: string]: string } } | string }>(`portfolio/${sessionId}/analysis`)
+        .then(res => {
+          if (typeof res.analysis === 'string') {
+            setAnalysis({ debrief: res.analysis });
+          } else {
+            setAnalysis(res.analysis);
+          }
+        })
         .catch(err => {
           console.error(err);
-          setAnalysis('Sector AI is currently offline. No advanced debrief available.');
+          setAnalysis({ debrief: 'Sector AI is currently offline. No advanced debrief available.' });
         })
         .finally(() => setIsLoadingAnalysis(false));
 
-      // Fetch Portfolio History for Chart
+      // Fetch Portfolio History and Allocation for Chart
       if (myResult) {
         api.get<any[]>(`portfolio/${sessionId}/history`)
           .then(res => setChartData(res))
           .catch(err => console.error('Failed to load chart history', err));
+
+        api.get<any>(`portfolio/${sessionId}`)
+          .then(res => setAllocation(res))
+          .catch(err => console.error('Failed to load allocation', err));
       }
     }
   }, [isOpen, sessionId, myResult]);
@@ -118,7 +175,7 @@ export default function GameOverModal({ isOpen, rankings, currentUserId, session
                     className={`flex items-center gap-4 p-3 border ${player.userId === currentUserId ? 'border-[oklch(var(--accent-brand))] bg-[oklch(var(--accent-brand)/0.05)]' : 'border-[oklch(var(--border-subtle))]'} font-mono text-xs`}
                   >
                     <span className="font-black text-[oklch(var(--accent-brand))] w-6">#{player.rank}</span>
-                    <span className="uppercase font-bold tracking-tight flex-1 text-left">{player.displayName}</span>
+                    <span className="uppercase font-bold tracking-tight flex-1 text-left">{player.firstName} {player.lastName}</span>
                     <span className="tabular-nums font-bold">${player.totalValue.toLocaleString()}</span>
                     <span className={`tabular-nums font-black w-16 text-right ${player.returnPct >= 0 ? 'text-[oklch(var(--accent-up))]' : 'text-[oklch(var(--accent-down))]'}`}>
                       {player.returnPct > 0 ? '+' : ''}{player.returnPct.toFixed(1)}%
@@ -128,14 +185,35 @@ export default function GameOverModal({ isOpen, rankings, currentUserId, session
               </div>
             </div>
 
-            {/* Chart */}
-            {myResult && chartData.length > 0 && (
-              <div className="bg-[oklch(var(--bg-primary))] border border-[oklch(var(--border-subtle))] p-6 relative">
-                <h2 className="text-[10px] uppercase font-black tracking-[0.3em] text-[oklch(var(--text-muted))] mb-4 flex items-center gap-2">
-                  <LineChart size={14} /> Performance Trajectory
-                </h2>
-                <div className="h-64 mt-4 relative -mx-4">
-                  <PerformanceChart data={chartData} />
+            {/* Charts Section */}
+            {myResult && (chartData.length > 0 || allocation) && (
+              <div className="space-y-4">
+                {/* Line Chart */}
+                {chartData.length > 0 && (
+                  <div className="bg-[oklch(var(--bg-primary))] border border-[oklch(var(--border-subtle))] p-6 relative">
+                    <h2 className="text-[10px] uppercase font-black tracking-[0.3em] text-[oklch(var(--text-muted))] mb-4 flex items-center gap-2">
+                      <LineChart size={14} /> Performance Trajectory
+                    </h2>
+                    <div className="h-64 mt-4 relative -mx-4">
+                      <PerformanceChart data={chartData} />
+                    </div>
+                  </div>
+                )}
+                
+                {/* Breakdown Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {/* Round Returns */}
+                  {barChartData.length > 0 && (
+                    <ReturnBarChart data={barChartData} />
+                  )}
+                  {/* Asset Allocation */}
+                  {assetAllocationData.length > 0 && (
+                    <AllocationPieChart data={assetAllocationData} title="Asset Imbalance" />
+                  )}
+                  {/* Sector Allocation */}
+                  {sectorAllocationData.length > 0 && (
+                    <AllocationPieChart data={sectorAllocationData} title="Sector Exposure" />
+                  )}
                 </div>
               </div>
             )}
@@ -152,10 +230,29 @@ export default function GameOverModal({ isOpen, rankings, currentUserId, session
                   Generating customized tactical analysis...
                 </div>
               ) : (
-                <div className="text-xs font-mono leading-relaxed space-y-4 text-[oklch(var(--text-primary))] relative z-10">
-                  {analysis?.split('\n\n').map((paragraph, i) => (
-                    <p key={i}>{paragraph}</p>
-                  ))}
+                <div className="text-xs font-mono leading-relaxed text-[oklch(var(--text-primary))] relative z-10 space-y-6">
+                  {/* Debrief */}
+                  <div className="space-y-4 text-[13px]">
+                    {analysis?.debrief?.split('\n\n').map((paragraph, i) => (
+                      <p key={i} className={i === 0 ? "font-bold text-[oklch(var(--accent-brand))]" : ""}>{paragraph}</p>
+                    ))}
+                  </div>
+
+                  {/* Structured Grades Reasoning */}
+                  {analysis?.grades && Object.keys(analysis.grades).length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6 pt-6 border-t border-[oklch(var(--accent-brand)/0.2)]">
+                      {Object.entries(analysis.grades).map(([metric, reason]) => (
+                        <div key={metric} className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--accent-brand)/0.2)] p-4 shadow-[inset_0_0_20px_oklch(var(--accent-brand)/0.02))]">
+                          <h3 className="text-[10px] uppercase font-black tracking-[0.2em] mb-2 text-[oklch(var(--text-muted))]">
+                            {metric} Grading
+                          </h3>
+                          <p className="text-[11px] leading-relaxed text-[oklch(var(--text-primary))] opacity-90">
+                            {reason}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

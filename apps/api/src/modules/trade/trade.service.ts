@@ -1,10 +1,8 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
-import { PrismaClient } from '@hackanomics/database';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { GameService } from '../game/game.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateTradeDto } from './dto/create-trade.dto';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../prisma';
 
 @Injectable()
 export class TradeService {
@@ -17,28 +15,34 @@ export class TradeService {
 
   async executeTrade(userId: string, dto: CreateTradeDto) {
     const { sessionId, symbol, quantity, action } = dto;
-    const engine = await this.gameService.getOrCreateEngine(sessionId);
-    const livePrice = engine.getPrice(symbol);
 
-    if (livePrice <= 0) {
-      throw new BadRequestException(`Invalid price for asset ${symbol}`);
-    }
-
-    // 1. Find SessionPlayer & Portfolio
+    // 1. SECURITY: Find SessionPlayer & verify membership BEFORE anything else
     const sessionPlayer = await prisma.sessionPlayer.findUnique({
       where: { sessionId_userId: { sessionId, userId } },
       include: { portfolio: true, session: true },
     });
 
-    if (!sessionPlayer || !sessionPlayer.portfolio) {
+    if (!sessionPlayer) {
+      throw new ForbiddenException('You are not a participant of this session');
+    }
+
+    if (!sessionPlayer.portfolio) {
       throw new NotFoundException('Portfolio not found');
     }
 
     const portfolio = sessionPlayer.portfolio;
     const session = sessionPlayer.session;
-    
+
     if (session.status !== 'ACTIVE') {
       throw new BadRequestException(`Trading is currently suspended. Current Phase: ${session.status}`);
+    }
+
+    // 2. Engine and price check
+    const engine = await this.gameService.getOrCreateEngine(sessionId);
+    const livePrice = engine.getPrice(symbol);
+
+    if (livePrice <= 0) {
+      throw new BadRequestException(`Invalid price for asset ${symbol}`);
     }
 
     const totalCost = quantity * livePrice;

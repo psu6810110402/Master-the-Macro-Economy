@@ -40,17 +40,10 @@ export async function apiFetch<T>(
     headers.set('Content-Type', 'application/json');
   }
 
-  // Attach auth token if available
-  if (auth && typeof window !== 'undefined') {
-    const token = localStorage.getItem('supabase_token');
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`);
-    }
-  }
-
   const res = await fetch(`${API_BASE}/${path}`, {
     ...fetchOptions,
     headers,
+    credentials: 'include', // Send cookies
   });
 
   if (!res.ok) {

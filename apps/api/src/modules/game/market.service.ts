@@ -1,10 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GameEngine } from '@hackanomics/engine';
-import { PrismaClient } from '@hackanomics/database';
 import { MacroEngineService } from '../macro-engine/macro-engine.service';
 import { BlackSwanService, AssetClass } from '../macro-engine/black-swan.service';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../prisma';
 
 @Injectable()
 export class MarketService {

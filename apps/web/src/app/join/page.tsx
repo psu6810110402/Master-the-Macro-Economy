@@ -7,7 +7,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { api, ApiError } from '@/lib/api';
 import { ChevronRight, Loader2, AlertCircle } from 'lucide-react';
 
+import { useSession } from '@/context/SessionContext';
+
 export default function JoinPage() {
+  const { setSessionId, setRole } = useSession();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,10 +28,8 @@ export default function JoinPage() {
         code: code.toUpperCase(),
       });
       
-      // Store current session for the user
-      localStorage.setItem('current_session_id', result.sessionId);
-      
-      // Redirect to dashboard
+      setSessionId(result.sessionId);
+      setRole('PLAYER');
       router.push('/dashboard');
     } catch (err) {
       if (err instanceof ApiError) {

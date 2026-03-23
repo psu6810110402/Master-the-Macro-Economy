@@ -30,7 +30,7 @@ export class ScoringService {
   /**
    * Sharpe Ratio (simplified)
    */
-  calculateSharpe(returns: number[], riskFreeRate: number = 0.02): number {
+  calculateSharpe(returns: number[], riskFreeRate: number = 0.00): number {
     if (returns.length < 2) return 0;
     
     const avg = returns.reduce((a, b) => a + b, 0) / returns.length;
@@ -53,4 +53,45 @@ export class ScoringService {
 
     return Math.round(sharpeScore + drawdownScore + diversityScore + survivalScore);
   }
+
+  /**
+   * Max Drawdown: peak-to-trough decline across portfolio values over time.
+   */
+  calculateMaxDrawdown(portfolioValues: number[]): number {
+    if (portfolioValues.length < 2) return 0;
+    
+    let peak = portfolioValues[0];
+    let maxDrawdown = 0;
+    
+    for (const value of portfolioValues) {
+      if (value > peak) peak = value;
+      const drawdown = (peak - value) / peak;
+      if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+    }
+    
+    return maxDrawdown;
+  }
+
+  /**
+   * Grade mapping: score → A/B/C/F
+   */
+  calculateGrade(normalizedScore: number, maxPoints: number): string {
+    const pct = normalizedScore / maxPoints;
+    if (pct >= 0.85) return 'A';
+    if (pct >= 0.65) return 'B';
+    if (pct >= 0.40) return 'C';
+    return 'F';
+  }
+
+  /**
+   * Black Swan Survival: how well did portfolio survive crash
+   * Returns 0-3 based on loss severity during black swan rounds
+   */
+  calculateBlackSwanSurvival(returnPct: number): number {
+    if (returnPct >= -0.05) return 3;    // Barely affected
+    if (returnPct >= -0.15) return 2;    // Survived
+    if (returnPct >= -0.30) return 1;    // Damaged
+    return 0;                            // Catastrophic
+  }
 }
+

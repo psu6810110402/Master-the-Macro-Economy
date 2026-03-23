@@ -9,7 +9,7 @@ import { api } from '@/lib/api';
 
 export default function Navbar({ onAuthClick }: { onAuthClick: () => void }) {
   const [scrolled, setScrolled] = useState(false);
-  const [user, setUser] = useState<{ role: string; displayName: string } | null>(null);
+  const [user, setUser] = useState<{ role: string; firstName: string; lastName: string } | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const router = useRouter();
 
@@ -18,15 +18,12 @@ export default function Navbar({ onAuthClick }: { onAuthClick: () => void }) {
     window.addEventListener('scroll', handleScroll);
     
     // Check auth
-    const token = localStorage.getItem('supabase_token');
-    if (token) {
-      api.get<{ role: string; displayName: string }>('auth/me')
-        .then(u => setUser(u))
-        .catch(() => {
-          localStorage.removeItem('supabase_token');
-          setUser(null);
-        });
-    }
+    api.get<{ role: string; firstName: string; lastName: string }>('auth/me')
+      .then(u => setUser(u))
+      .catch(async () => { 
+        await api.post('auth/logout', {});
+        setUser(null);
+      });
 
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
@@ -74,7 +71,7 @@ export default function Navbar({ onAuthClick }: { onAuthClick: () => void }) {
             <div className="flex items-center gap-4">
                <div className="text-right hidden lg:block">
                   <div className="text-[9px] font-black uppercase tracking-widest text-[oklch(var(--accent-brand))] mb-0.5">Operative Active</div>
-                  <div className="text-[8px] font-bold text-[oklch(var(--text-muted))]">{user.displayName}</div>
+                  <div className="text-[8px] font-bold text-[oklch(var(--text-muted))]">{user.firstName} {user.lastName}</div>
                </div>
                <Button 
                 onClick={() => router.push(user.role === 'ADMIN' ? '/admin' : user.role === 'FACILITATOR' ? '/facilitator' : '/lobby')}

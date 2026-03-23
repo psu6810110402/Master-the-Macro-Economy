@@ -4,11 +4,15 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Shield, Lock, User, Play, Loader2, ChevronRight, Terminal as TerminalIcon, Mail } from 'lucide-react';
 import { Button } from '@hackanomics/ui';
-import { api, ApiError } from '@/lib/api';
+import { api } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
+import { useSession } from '@/context/SessionContext';
+
 function LoginContent() {
+  const { setRole } = useSession();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,9 +33,25 @@ function LoginContent() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await api.post<{ access_token: string }>('auth/login', formData);
-      localStorage.setItem('supabase_token', response.access_token);
-      router.push(redirectTo);
+      await api.post<{ access_token: string }>('auth/login', {
+        email: formData.email,
+        password: formData.password,
+      });
+
+      // Determine the user's role by asking the backend (which auto-provisions if missed)
+      try {
+        const user = await api.get<{ role: string }>('auth/me');
+        setRole((user.role as 'PLAYER' | 'FACILITATOR' | 'ADMIN') || 'PLAYER');
+        
+        if (user.role === 'ADMIN') router.push('/admin');
+        else if (user.role === 'FACILITATOR') router.push('/facilitator');
+        else router.push(redirectTo);
+      } catch (err) {
+        // Fallback
+        console.warn('Could not fetch exact role from API, redirecting to lobby');
+        setRole('PLAYER');
+        router.push(redirectTo);
+      }
     } catch (err: any) {
       setError(err.message || 'Verification failed. Access Denied.');
       console.error('Login failed:', err);
@@ -43,8 +63,12 @@ function LoginContent() {
   const handleGuestLogin = async () => {
     setIsLoading(true);
     try {
-      const response = await api.post<{ access_token: string }>('auth/guest', { role: 'STUDENT' });
-      localStorage.setItem('supabase_token', response.access_token);
+      await api.post<{ access_token: string }>('auth/guest', {
+        role: 'PLAYER'
+      });
+
+      setRole('PLAYER');
+
       router.push(redirectTo);
     } catch (err) {
       console.error('Guest login failed:', err);

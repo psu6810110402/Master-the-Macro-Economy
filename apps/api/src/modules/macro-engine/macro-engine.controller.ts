@@ -4,9 +4,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { MacroEngineService } from './macro-engine.service';
 import { OverrideMacroDto } from './dto/macro-state.dto';
-import { PrismaClient } from '@hackanomics/database';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../prisma';
 
 @Controller('game/macro')
 export class MacroEngineController {

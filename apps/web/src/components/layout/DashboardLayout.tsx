@@ -13,7 +13,8 @@ import {
   Shield, 
   ShoppingCart,
   Globe2,
-  Home
+  Home,
+  BookOpen
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -28,6 +29,8 @@ interface DashboardLayoutProps {
   secondsLeft?: number;
 }
 
+import { useSession } from '@/context/SessionContext';
+
 export default function DashboardLayout({ 
   children, 
   title = 'Terminal',
@@ -38,6 +41,9 @@ export default function DashboardLayout({
 }: DashboardLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { role, logout } = useSession();
+
+  const [user, setUser] = React.useState<{ role: string } | null>(null);
 
   const navItems = [
     { icon: Home, label: 'Front', href: '/' },
@@ -45,30 +51,21 @@ export default function DashboardLayout({
     { icon: LayoutDashboard, label: 'Terminal', href: '/dashboard' },
     { icon: ShoppingCart, label: 'Marketplace', href: '/marketplace' },
     { icon: Trophy, label: 'Leaderboard', href: '/dashboard/leaderboard' },
+    { icon: BookOpen, label: 'Manual', href: `/manuals/${role || 'player'}`.toLowerCase() },
   ];
 
-  const [user, setUser] = React.useState<{ role: string } | null>(null);
-
   useEffect(() => {
-    const token = localStorage.getItem('supabase_token');
-    if (!token) {
-      router.push('/');
-      return;
-    }
-
     // Fetch user to determine role for navigation
     api.get<{ role: string }>('auth/me')
       .then(u => setUser(u))
-      .catch(() => {
-        localStorage.removeItem('supabase_token');
+      .catch(async () => {
+        logout();
         router.push('/');
       });
-  }, [router]);
+  }, [router, logout]);
 
-  const handleSignOut = () => {
-    localStorage.removeItem('supabase_token');
-    localStorage.removeItem('current_session_id');
-    localStorage.removeItem('session_role');
+  const handleSignOut = async () => {
+    logout();
     router.push('/');
   };
 
@@ -139,16 +136,16 @@ export default function DashboardLayout({
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col relative overflow-y-auto">
         {/* Top Header/Ticker Line */}
-        <header className="h-16 border-b border-[oklch(var(--border-subtle))] flex items-center justify-between px-8 sticky top-0 z-20 bg-[oklch(var(--bg-primary)/0.5)] backdrop-blur-md">
-          <div className="flex items-center gap-8 flex-1 overflow-hidden mr-8">
+        <header className="min-h-16 border-b border-[oklch(var(--border-subtle))] flex flex-col md:flex-row items-center justify-between px-4 md:px-8 py-4 md:py-0 sticky top-0 z-20 bg-[oklch(var(--bg-primary)/0.8)] backdrop-blur-md gap-4 xl:gap-8">
+          <div className="flex items-center gap-4 md:gap-8 flex-1 w-full overflow-hidden mr-0 md:mr-8 justify-between md:justify-start">
             <div className="flex items-center gap-2 flex-shrink-0">
               <div className="w-2 h-2 rounded-full bg-[oklch(var(--accent-up))] animate-pulse" />
               <div className="text-[10px] uppercase font-bold tracking-[0.3em] text-[oklch(var(--text-muted))] whitespace-nowrap">{title}</div>
             </div>
-            <div className="h-4 w-px bg-[oklch(var(--border-subtle))] flex-shrink-0" />
+            <div className="hidden md:block h-4 w-px bg-[oklch(var(--border-subtle))] flex-shrink-0" />
             
-            {/* Market Ticker Marquee */}
-            <div className="flex-1 overflow-hidden pointer-events-none relative h-full flex items-center">
+            {/* Market Ticker Marquee - Hidden on Mobile */}
+            <div className="hidden md:flex flex-1 overflow-hidden pointer-events-none relative h-full items-center">
               <div className="animate-marquee whitespace-nowrap flex gap-12 items-center">
                 {[1, 2, 3].map((i) => (
                   <div key={i} className="flex gap-12 items-center">
@@ -177,24 +174,24 @@ export default function DashboardLayout({
             </div>
           </div>
           
-          <div className="flex items-center gap-6 flex-shrink-0">
+          <div className="flex items-center justify-between w-full md:w-auto md:justify-end gap-3 md:gap-6 flex-shrink-0">
             <div className="text-right">
-              <div className="text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))]">Round</div>
-              <div className="text-sm font-black font-display leading-tight tabular-nums">
+              <div className="text-[8px] md:text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))]">Round</div>
+              <div className="text-xs md:text-sm font-black font-display leading-tight tabular-nums">
                 {String(currentRound).padStart(2, '0')} / {String(totalRounds).padStart(2, '0')}
               </div>
             </div>
-            <div className="h-8 w-px bg-[oklch(var(--border-subtle))]" />
-            <div className="text-right">
-              <div className="text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))]">Timer</div>
-              <div className={`text-sm font-black font-mono leading-tight tabular-nums ${secondsLeft && secondsLeft < 30 ? 'text-[oklch(var(--status-error))] animate-pulse' : ''}`}>
+            <div className="h-6 md:h-8 w-px bg-[oklch(var(--border-subtle))]" />
+            <div className="text-center md:text-right">
+              <div className="text-[8px] md:text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))]">Timer</div>
+              <div className={`text-xs md:text-sm font-black font-mono leading-tight tabular-nums ${secondsLeft && secondsLeft < 30 ? 'text-[oklch(var(--status-error))] animate-pulse' : ''}`}>
                 {secondsLeft !== undefined ? `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, '0')}` : '--:--'}
               </div>
             </div>
-            <div className="h-8 w-px bg-[oklch(var(--border-subtle))]" />
+            <div className="h-6 md:h-8 w-px bg-[oklch(var(--border-subtle))]" />
             <div className="text-right">
-              <div className="text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))]">Active Portfolio</div>
-              <div className="text-sm font-black font-display text-[oklch(var(--accent-brand))] leading-tight tabular-nums">
+              <div className="text-[8px] md:text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))]">Portfolio</div>
+              <div className="text-xs md:text-sm font-black font-display text-[oklch(var(--accent-brand))] leading-tight tabular-nums">
                 ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </div>
             </div>

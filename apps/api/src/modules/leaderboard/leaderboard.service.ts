@@ -1,8 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaClient } from '@hackanomics/database';
 import { GameService } from '../game/game.service';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../prisma';
 
 @Injectable()
 export class LeaderboardService {
@@ -37,9 +35,10 @@ export class LeaderboardService {
 
         const totalValue = Number(p.portfolio?.cashBalance || 0) + holdingsValue;
 
+        const nameStr = `${p.user.firstName} ${p.user.lastName}`.trim() || 'Unknown';
         return {
           userId: p.userId,
-          username: p.user.displayName,
+          username: nameStr,
           totalValue,
           rank: 0,
         };

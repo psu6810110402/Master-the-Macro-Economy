@@ -29,7 +29,7 @@ export class SessionController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN', 'FACILITATOR')
   async createSession(@CurrentUser() user: any, @Body() dto: CreateSessionDto) {
-    return this.sessionService.createSession(user.id, dto.name, dto.maxPlayers, dto.scenarioId);
+    return this.sessionService.createSession(user.id, dto.name, dto.maxPlayers, dto.scenarioId, dto.format);
   }
 
   @Post('join')

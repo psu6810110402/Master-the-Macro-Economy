@@ -1,7 +1,5 @@
-import { PrismaClient } from '@hackanomics/database';
+import { prisma } from './prisma';
 import * as bcrypt from 'bcrypt';
-
-const prisma = new PrismaClient();
 
 async function run() {
   const passwordHash = await bcrypt.hash('password123', 10);

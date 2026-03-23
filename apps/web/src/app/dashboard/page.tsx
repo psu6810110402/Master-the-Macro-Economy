@@ -32,7 +32,10 @@ interface Portfolio {
   }>;
 }
 
+import { useSession } from '@/context/SessionContext';
+
 export default function DashboardPage() {
+  const { sessionId: contextSessionId, role: contextRole, logout, isInitialized } = useSession();
   const [sessionId, setSessionId] = useState<string>('');
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -41,9 +44,10 @@ export default function DashboardPage() {
   const [currentRound, setCurrentRound] = useState<number>(0);
 
   useEffect(() => {
-    const savedSessionId = localStorage.getItem('current_session_id');
-    if (savedSessionId) setSessionId(savedSessionId);
+    if (contextSessionId) setSessionId(contextSessionId);
+  }, [contextSessionId]);
 
+  useEffect(() => {
     const fetchData = async () => {
       try {
         const me = await api.get<{ userId: string }>('auth/me');
@@ -51,7 +55,7 @@ export default function DashboardPage() {
 
         const [assetsData, portfolioData] = await Promise.all([
           api.get<Asset[]>('game/assets'),
-          savedSessionId ? api.get<Portfolio>(`portfolio/${savedSessionId}`) : Promise.resolve(null)
+          sessionId ? api.get<Portfolio>(`portfolio/${sessionId}`) : Promise.resolve(null)
         ]);
         setAssets(assetsData);
         setPortfolio(portfolioData);
@@ -62,7 +66,11 @@ export default function DashboardPage() {
       }
     };
 
-    fetchData();
+    if (sessionId) {
+      fetchData();
+    } else {
+      setIsLoading(false);
+    }
   }, [sessionId]);
 
   const { isConnected, lastEvent, emit } = useSocket(sessionId);
@@ -75,12 +83,7 @@ export default function DashboardPage() {
   
   const [isGameOverOpen, setIsGameOverOpen] = useState(false);
   const [rankings, setRankings] = useState<any[]>([]);
-  const [sessionRole, setSessionRole] = useState<'PLAYER' | 'FACILITATOR' | null>(null);
-
-  useEffect(() => {
-    const role = localStorage.getItem('session_role') as 'PLAYER' | 'FACILITATOR';
-    setSessionRole(role);
-  }, []);
+  const sessionRole = contextRole;
 
   useEffect(() => {
     if (!lastEvent) return;
@@ -88,7 +91,13 @@ export default function DashboardPage() {
     if (lastEvent.event === 'initialState') {
       setPrices(lastEvent.data.assetPrices || {});
       setPreviousPrices(lastEvent.data.assetPrices || {});
-      setCurrentRound(lastEvent.data.round || 0);
+      setCurrentRound(lastEvent.data.round || lastEvent.data.currentRound || 0);
+      
+      if (lastEvent.data.status === 'COMPLETED') {
+        setRankings(lastEvent.data.rankings || []);
+        setIsGameOverOpen(true);
+      }
+      
       if (lastEvent.data.news) {
         setNews(lastEvent.data.news);
         setIsNewsOpen(true);
@@ -134,7 +143,7 @@ export default function DashboardPage() {
     }
   }, [lastEvent, sessionId, prices]);
 
-  if (isLoading) {
+  if (isLoading || !isInitialized) {
     return (
       <DashboardLayout title="Dashboard" currentRound={currentRound} totalValue={0}>
         <div className="h-[60vh] flex flex-col items-center justify-center opacity-20 uppercase tracking-[0.3em] font-black">

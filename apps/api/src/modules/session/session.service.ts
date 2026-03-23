@@ -1,11 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaClient } from '@hackanomics/database';
-// @ts-ignore - Prisma types might be out of sync
 import { GameSession } from '@hackanomics/database';
 import { GameService } from '../game/game.service';
 import { AuditService } from '../audit/audit.service';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../prisma';
 
 @Injectable()
 export class SessionService {
@@ -14,8 +11,9 @@ export class SessionService {
     private auditService: AuditService,
   ) {}
 
-  async createSession(facilitatorId: string, name: string, maxPlayers: number, scenarioId?: string): Promise<GameSession> {
+  async createSession(facilitatorId: string, name: string, maxPlayers: number, scenarioId?: string, format: string = 'STANDARD'): Promise<GameSession> {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase(); // 6-char code
+    const totalRounds = format === 'SHORT' ? 3 : format === 'FULL' ? 7 : 5;
     
     return prisma.gameSession.create({
       data: {
@@ -25,6 +23,8 @@ export class SessionService {
         status: 'WAITING',
         facilitatorId,
         scenarioId: scenarioId || 'TECH_CRISIS',
+        format,
+        totalRounds
       },
     });
   }
@@ -36,7 +36,7 @@ export class SessionService {
       include: {
         players: {
           include: {
-            user: { select: { displayName: true } },
+            user: { select: { firstName: true, lastName: true } },
             portfolio: { select: { totalValue: true } },
           }
         }

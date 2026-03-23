@@ -64,10 +64,7 @@ export default function LandingPage() {
   const heroY = useTransform(scrollY, [0, 600], [0, 100]);
 
   useEffect(() => {
-    const token = localStorage.getItem('supabase_token');
-    if (token) {
-      api.get<User>('auth/me').then(setUser).catch(() => setUser(null));
-    }
+    api.get<User>('auth/me').then(setUser).catch(() => setUser(null));
   }, []);
 
   useEffect(() => {

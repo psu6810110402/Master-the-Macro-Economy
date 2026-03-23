@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.46.0",
+    "@google/generative-ai": "^0.24.1",
     "@hackanomics/database": "*",
     "@hackanomics/engine": "*",
     "@nestjs/common": "^10.0.0",
@@ -19,10 +20,12 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^10.0.0",
     "@nestjs/platform-socket.io": "^10.4.22",
+    "@nestjs/schedule": "^6.1.1",
     "@nestjs/websockets": "^10.4.22",
     "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "cookie-parser": "^1.4.7",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.0",
@@ -35,8 +38,12 @@
     "@nestjs/schematics": "^10.0.0",
     "@nestjs/testing": "^10.0.0",
     "@types/bcrypt": "^6.0.0",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cron": "^2.0.1",
     "@types/node": "^20.3.1",
     "@types/passport-jwt": "^4.0.1",
+    "axios": "^1.13.6",
+    "socket.io-client": "^4.8.3",
     "typescript": "^5.1.3"
   }
 }

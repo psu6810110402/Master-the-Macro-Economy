@@ -1,7 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { GameEngine } from '@hackanomics/engine';
 import { GameState } from '@hackanomics/engine/dist/types/Game';
-import { PrismaClient } from '@hackanomics/database';
 import { MarketService } from './market.service';
 import { AuditService } from '../audit/audit.service';
 import { ScenarioService } from '../macro-engine/scenario.service';
@@ -9,8 +8,8 @@ import { MacroEngineService } from '../macro-engine/macro-engine.service';
 import { NewsGeneratorService } from '../macro-engine/news-generator.service';
 import { ScoringService } from '../macro-engine/scoring.service';
 import { TradeResolutionService } from './trade-resolution.service';
-
-const prisma = new PrismaClient();
+import { BlackSwanService } from '../macro-engine/black-swan.service';
+import { prisma } from '../../prisma';
 
 // Structured payload that both gateway and REST controllers return
 export interface RoundPayload {
@@ -35,6 +34,7 @@ export interface RoundPayload {
 @Injectable()
 export class GameService {
   private engines = new Map<string, GameEngine>();
+  private enginePromises = new Map<string, Promise<GameEngine>>();
   private readonly logger = new Logger(GameService.name);
 
   constructor(
@@ -45,16 +45,44 @@ export class GameService {
     private newsGenerator: NewsGeneratorService,
     private scoringService: ScoringService,
     private tradeResolution: TradeResolutionService,
+    private blackSwanService: BlackSwanService,
   ) {}
 
   async getOrCreateEngine(sessionId: string): Promise<GameEngine> {
-    if (this.engines.has(sessionId)) {
-      return this.engines.get(sessionId)!;
+    if (!sessionId) {
+      throw new NotFoundException('Session ID is required');
     }
 
+    // Use promise-based cache to prevent race conditions during concurrent joins
+    if (this.enginePromises.has(sessionId)) {
+      return this.enginePromises.get(sessionId)!;
+    }
+
+    const promise = this._getOrCreateEngineInternal(sessionId);
+    this.enginePromises.set(sessionId, promise);
+    return promise;
+  }
+
+  private async _getOrCreateEngineInternal(sessionId: string): Promise<GameEngine> {
     const session = await prisma.gameSession.findUnique({
       where: { id: sessionId },
     });
+
+    if (!session) {
+      this.enginePromises.delete(sessionId);
+      throw new NotFoundException('Session not found');
+    }
+
+    if (this.engines.has(sessionId)) {
+      const engine = this.engines.get(sessionId)!;
+      // Ensure engine round is synced with DB if it changed (e.g. from 0 to 1 during start)
+      const dbRound = session.roundNumber ?? 0;
+      if (engine.getState().currentRound !== dbRound) {
+        this.logger.log(`Syncing engine round for ${sessionId}: ${engine.getState().currentRound} -> ${dbRound}`);
+        (engine as any).state.currentRound = dbRound; // Force update if engine doesn't have setRound
+      }
+      return engine;
+    }
 
     if (!session) {
       throw new NotFoundException('Session not found');
@@ -62,7 +90,7 @@ export class GameService {
 
     const initialState: GameState = {
       players: [],
-      currentRound: session.roundNumber || 1,
+      currentRound: session.roundNumber ?? 0,
       isPaused: session.status === 'PAUSED',
       status: session.status as any,
       scenarioId: session.scenarioId,
@@ -75,20 +103,35 @@ export class GameService {
     const assets = await prisma.asset.findMany({ where: { isActive: true } });
     const prices: Record<string, number> = {};
     
-    for (const asset of assets) {
-      const latestPrice = await prisma.assetPrice.findFirst({
-        where: { assetId: asset.id, sessionId },
-        orderBy: { recordedAt: 'desc' },
-      });
-      
-      const baselinePrice = await prisma.assetPrice.findFirst({
-        where: { assetId: asset.id, sessionId: null },
-        orderBy: { recordedAt: 'desc' },
-      });
+    // Optimized: Fetch all latest prices for this session in one go
+    const latestPrices = await prisma.assetPrice.findMany({
+      where: { 
+        sessionId,
+        assetId: { in: assets.map(a => a.id) }
+      },
+      orderBy: { recordedAt: 'desc' },
+      // Note: This gets ALL prices, we'll pick the most recent per asset manually
+      // Use distinct or group by if possible, but distinct on assetId is simpler
+      distinct: ['assetId']
+    });
 
-      prices[asset.symbol] = latestPrice 
-        ? Number(latestPrice.price) 
-        : (baselinePrice ? Number(baselinePrice.price) : (this.marketService.getBasePrice(asset.symbol) || 100));
+    // Optimized: Fetch baseline prices for missing assets
+    const baselinePrices = await prisma.assetPrice.findMany({
+      where: { 
+        sessionId: null,
+        assetId: { in: assets.map(a => a.id) }
+      },
+      orderBy: { recordedAt: 'desc' },
+      distinct: ['assetId']
+    });
+
+    for (const asset of assets) {
+      const latest = latestPrices.find(p => p.assetId === asset.id);
+      const baseline = baselinePrices.find(p => p.assetId === asset.id);
+
+      prices[asset.symbol] = latest 
+        ? Number(latest.price) 
+        : (baseline ? Number(baseline.price) : (this.marketService.getBasePrice(asset.symbol) || 100));
     }
     initialState.assetPrices = prices;
 
@@ -139,6 +182,16 @@ export class GameService {
       scenarioId: session.scenarioId,
     });
     
+    // Fix #9: Random Black Swan Trigger
+    if (session.blackSwanEnabled && Math.random() <= 0.15) {
+      const event = this.blackSwanService.getRandomEventByTier(1);
+      await prisma.macroState.update({
+        where: { sessionId_roundNumber: { sessionId, roundNumber: 1 } },
+        data: { blackSwanActive: true, blackSwanEvent: event.name, blackSwanTier: 1 }
+      });
+      this.logger.log(`Random Black Swan Triggered on Round 1: ${event.name}`);
+    }
+    
     // Generate initial news
     const macro = await prisma.macroState.findUnique({
       where: { sessionId_roundNumber: { sessionId, roundNumber: 1 } },
@@ -168,13 +221,15 @@ export class GameService {
     const state = engine.getState();
     const currentRoundNumber = state.currentRound;
 
-    if (currentRoundNumber >= 5) {
+    const session = await prisma.gameSession.findUnique({ where: { id: sessionId } });
+    if (!session) throw new NotFoundException('Session not found');
+
+    if (currentRoundNumber >= session.totalRounds) {
       return this.endSession(sessionId);
     }
 
     const nextRoundNumber = currentRoundNumber + 1;
-    const session = await prisma.gameSession.findUnique({ where: { id: sessionId } });
-    const scenario = this.scenarioService.getScenarioById(session?.scenarioId || '');
+    const scenario = this.scenarioService.getScenarioById(session.scenarioId || '');
 
     const currentMacro = await prisma.macroState.findUnique({
       where: { sessionId_roundNumber: { sessionId, roundNumber: currentRoundNumber } },
@@ -183,7 +238,7 @@ export class GameService {
     const deltaIndex = currentRoundNumber; 
     const delta = scenario?.roundDeltas[deltaIndex];
 
-    // Create macro state for next round
+    // Create macro state for next round, persisting manual overrides and active black swans
     const nextMacroData = {
       sessionId,
       roundNumber: nextRoundNumber,
@@ -191,6 +246,9 @@ export class GameService {
       inflation: (currentMacro?.inflation ?? 3.0) + (delta?.pi ?? 0),
       gdpGrowth: (currentMacro?.gdpGrowth ?? 2.8) + (delta?.g ?? 0),
       volatility: currentMacro?.volatility ?? 0.3,
+      blackSwanActive: currentMacro?.blackSwanActive ?? false,
+      blackSwanTier: currentMacro?.blackSwanTier ?? null,
+      blackSwanEvent: currentMacro?.blackSwanEvent ?? null,
     };
 
     await prisma.macroState.upsert({
@@ -231,27 +289,72 @@ export class GameService {
       update: { priceSnapshot: JSON.stringify(newPrices) },
     });
 
-    // Generate news based on macro deltas
     const nextMacro = await prisma.macroState.findUnique({
       where: { sessionId_roundNumber: { sessionId, roundNumber: nextRoundNumber } },
     });
-    const news = this.newsGenerator.generateNews(nextMacro as any, currentMacro as any);
+
+    // Fix #22: Black Swan Recovery Logic
+    let processedPrices = newPrices;
+    if ((session as any).blackSwanRoundCount > 0) {
+      // We are in recovery phase
+      const recoveryRounds = this.blackSwanService.getRecoveryRounds((currentMacro as any)?.blackSwanTier || 1);
+      const roundsSinceEvent = (session as any).blackSwanRoundCount;
+      
+      if (roundsSinceEvent < recoveryRounds) {
+        // Fetch pre-swan prices from the round BEFORE the swan hit
+        const swanHitRound = currentRoundNumber - roundsSinceEvent;
+        const preSwanRound = await prisma.round.findFirst({
+           where: { sessionId, roundNumber: swanHitRound - 1 }
+        });
+        
+        if (preSwanRound) {
+          const prePrices = JSON.parse(preSwanRound.priceSnapshot);
+          processedPrices = this.blackSwanService.applyRecovery(
+            newPrices, 
+            prePrices, 
+            roundsSinceEvent, 
+            recoveryRounds
+          );
+          
+          await (prisma.gameSession as any).update({
+            where: { id: sessionId },
+            data: { blackSwanRoundCount: { increment: 1 } }
+          });
+        }
+      } else {
+        // Recovery complete
+        await (prisma.gameSession as any).update({
+          where: { id: sessionId },
+          data: { blackSwanRoundCount: 0 }
+        });
+      }
+    } else if ((currentMacro as any)?.blackSwanActive) {
+      // Just hit a swan this round, start recovery counter for next round
+      await (prisma.gameSession as any).update({
+        where: { id: sessionId },
+        data: { blackSwanRoundCount: 1 }
+      });
+    }
+
+    const news = (this as any).newsGenerator.generateNews(nextMacro as any, currentMacro as any);
 
     const updatedState = engine.getState();
+    updatedState.assetPrices = processedPrices;
+    
     return {
       state: updatedState,
       news,
       macro: {
-        interestRate: nextMacro!.interestRate,
-        inflation: nextMacro!.inflation,
-        gdpGrowth: nextMacro!.gdpGrowth,
-        volatility: nextMacro!.volatility,
-        blackSwanActive: nextMacro!.blackSwanActive,
-        blackSwanEvent: nextMacro!.blackSwanEvent,
+        interestRate: nextMacro?.interestRate ?? 2.5,
+        inflation: nextMacro?.inflation ?? 3.0,
+        gdpGrowth: nextMacro?.gdpGrowth ?? 2.8,
+        volatility: nextMacro?.volatility ?? 0.3,
+        blackSwanActive: !!nextMacro?.blackSwanActive,
+        blackSwanEvent: nextMacro?.blackSwanEvent,
       },
-      round: updatedState.currentRound,
-      timer: 0, // Timer starts after news dismiss
-      assetPrices: updatedState.assetPrices,
+      round: nextRoundNumber,
+      timer: 180,
+      assetPrices: processedPrices,
     };
   }
 
@@ -317,7 +420,7 @@ export class GameService {
     // Get macro for the final payload
     const session = await prisma.gameSession.findUnique({ where: { id: sessionId } });
     const macro = await prisma.macroState.findUnique({
-      where: { sessionId_roundNumber: { sessionId, roundNumber: session?.roundNumber || 5 } },
+      where: { sessionId_roundNumber: { sessionId, roundNumber: session?.roundNumber || session?.totalRounds || 5 } },
     });
 
     return {
@@ -341,6 +444,7 @@ export class GameService {
 
   /**
    * Calculate scores for all players in a session using ScoringService.
+   * Persists results into the Score table.
    */
   private async calculateSessionScores(sessionId: string) {
     const portfolios = await prisma.portfolio.findMany({
@@ -351,36 +455,165 @@ export class GameService {
       },
     });
 
-    const scores = portfolios.map((portfolio: any) => {
-      // Build holdings value map for diversity calculation
+    // Fetch historical trade records for multi-round returns
+    const allTradeRecords = await prisma.tradeRecord.findMany({
+      where: { sessionId },
+      orderBy: { round: 'asc' },
+    });
+
+    // Fetch the final market prices for accurate diversity map scoring
+    const currentRound = await prisma.round.findFirst({
+      where: { sessionId },
+      orderBy: { roundNumber: 'desc' },
+    });
+    const currentPrices = currentRound?.priceSnapshot ? JSON.parse(currentRound.priceSnapshot) : {};
+
+    const scores = [];
+    const playerSummaries: Record<string, string> = {};
+
+    for (const portfolio of portfolios) {
+      const userId = portfolio.sessionPlayer?.userId;
+      if (!userId) continue;
+
+      // Build holdings value map for diversity calculation based on Live Prices
       const holdingsMap: Record<string, number> = {};
       for (const h of portfolio.holdings) {
-        holdingsMap[h.asset.symbol] = Number(h.quantity) * (portfolio.totalValue ? Number(h.quantity) : 0);
+        const livePrice = currentPrices[h.asset.symbol] || Number(h.avgCost || 0);
+        holdingsMap[h.asset.symbol] = Number(h.quantity) * livePrice;
       }
 
       const totalValue = Number(portfolio.totalValue || 100000);
-      const returnPct = Number(portfolio.returnPct || 0) / 100;
+      const initialValue = 100000;
+      const returnPct = (totalValue - initialValue) / initialValue;
 
-      // Simplified scoring — future phases can add historical returns for Sharpe
-      const diversity = this.scoringService.calculateDiversity(holdingsMap, totalValue);
-      const sharpe = this.scoringService.calculateSharpe([returnPct]); // Single return simplified
+      // Get per-round portfolio values for this player
+      const playerRecords = allTradeRecords
+        .filter((r: any) => r.playerId === userId)
+        .sort((a: any, b: any) => a.round - b.round);
       
-      const finalScore = this.scoringService.calculateFinalScore({
-        sharpeRatio: sharpe,
-        maxDrawdown: Math.max(0, -returnPct), // Simplified drawdown
-        assetDiversity: diversity,
-        blackSwanSurvival: returnPct >= -0.15 ? 3 : (returnPct >= -0.30 ? 2 : (returnPct >= -0.50 ? 1 : 0)),
+      const portfolioValues = [initialValue];
+      for (const r of playerRecords) {
+        // We capture total value at start of round > 1 (which effectively is the end of the previous round)
+        if (r.round > 1) {
+          portfolioValues.push(Number(r.totalValue));
+        }
+      }
+      portfolioValues.push(totalValue); // Append exact final end-of-round total value
+
+      
+      // Calculate per-round returns for Sharpe
+      const returns: number[] = [];
+      for (let i = 1; i < portfolioValues.length; i++) {
+        returns.push((portfolioValues[i] - portfolioValues[i - 1]) / portfolioValues[i - 1]);
+      }
+
+      const diversity = this.scoringService.calculateDiversity(holdingsMap, totalValue);
+      const sharpe = this.scoringService.calculateSharpe(returns);
+      const maxDrawdown = this.scoringService.calculateMaxDrawdown(portfolioValues);
+      const blackSwanSurvival = this.scoringService.calculateBlackSwanSurvival(returnPct);
+
+      const components = { sharpeRatio: sharpe, maxDrawdown, assetDiversity: diversity, blackSwanSurvival };
+      const finalScore = this.scoringService.calculateFinalScore(components);
+
+      // Calculate grades per component
+      const sharpeScore = Math.min(400, Math.max(0, sharpe * 100));
+      const drawdownScore = Math.min(200, Math.max(0, (1 - maxDrawdown) * 200));
+      const diversityScore = Math.min(200, Math.max(0, diversity * 200));
+      const survivalScore = Math.min(200, Math.max(0, blackSwanSurvival * 66.6));
+
+      const gradeReturn = this.scoringService.calculateGrade(sharpeScore, 400);
+      const gradeDiversity = this.scoringService.calculateGrade(diversityScore, 200);
+      const gradeRisk = this.scoringService.calculateGrade(drawdownScore, 200);
+      const gradeSurvival = this.scoringService.calculateGrade(survivalScore, 200);
+
+      // Persist to DB
+      await prisma.score.upsert({
+        where: { sessionId_userId: { sessionId, userId } },
+        create: {
+          sessionId, userId,
+          sharpeRatio: sharpe, maxDrawdown, assetDiversity: diversity,
+          blackSwanSurvival, finalScore,
+          gradeReturn, gradeDiversity, gradeRisk, gradeSurvival,
+        },
+        update: {
+          sharpeRatio: sharpe, maxDrawdown, assetDiversity: diversity,
+          blackSwanSurvival, finalScore,
+          gradeReturn, gradeDiversity, gradeRisk, gradeSurvival,
+        },
       });
 
-      return {
-        userId: portfolio.sessionPlayer?.userId,
-        displayName: portfolio.sessionPlayer?.user?.displayName || 'Unknown',
+      scores.push({
+        userId,
+        displayName: portfolio.sessionPlayer?.user?.firstName 
+          ? `${portfolio.sessionPlayer.user.firstName} ${portfolio.sessionPlayer.user.lastName}`
+          : (portfolio.sessionPlayer?.user?.displayName || 'Unknown'),
         totalValue,
-        returnPct: Number(portfolio.returnPct || 0),
+        returnPct: Math.round(returnPct * 10000) / 100, // as %
         score: finalScore,
         diversity: Math.round(diversity * 100),
-      };
-    });
+        gradeReturn, gradeDiversity, gradeRisk, gradeSurvival,
+      });
+
+      playerSummaries[userId] = `Player ID: ${userId}
+Name: ${portfolio.sessionPlayer?.user?.displayName || 'Unknown'}
+Start Cash: $100000
+Final Value: $${totalValue}
+Return: ${returnPct * 100}%
+Final Allocation: ${allTradeRecords.reverse().find((r: any) => r.playerId === userId)?.portfolio || "100% CASH"}`;
+    }
+
+    // Fix #4: Gemini Batch Call
+    const playerAnalyses: Record<string, string> = {};
+    if (Object.keys(playerSummaries).length > 0) {
+      try {
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (apiKey) {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const { GoogleGenAI } = require('@google/generative-ai');
+          const ai = new GoogleGenAI(apiKey);
+          const prompt = `You are an elite, harsh financial simulation AI. Analyze the final statuses of these players in one batch. For each player, provide a 1-2 sentence harsh critique of their final portfolio and returns.
+Players:
+${Object.values(playerSummaries).join('\n\n')}
+
+Return a valid JSON object where keys are Player IDs and values are their individual critiques. Do not include markdown wraps or anything outside the JSON object. Example: {"uuid123": "You held 100% cash while the market rallied. Cowardice is not an investment strategy."}`;
+          
+          const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
+          
+          // Fix #4: Gemini Timeout & Fallback
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Gemini timeout')), 30000)
+          );
+          
+          const result: any = await Promise.race([
+            model.generateContent(prompt),
+            timeoutPromise
+          ]);
+          
+          const response = result.response;
+
+          let text = response.text() || "{}";
+          text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+          const parsed = JSON.parse(text);
+          Object.assign(playerAnalyses, parsed);
+        }
+      } catch (err) {
+        this.logger.error("Gemini batch analysis failed or timed out", err);
+        // Fallback for all players
+        for (const userId of Object.keys(playerSummaries)) {
+          if (!playerAnalyses[userId]) {
+            playerAnalyses[userId] = "Analysis unavailable at this time.";
+          }
+        }
+      }
+    }
+
+    // Persist AI Insights
+    for (const userId of Object.keys(playerAnalyses)) {
+      await prisma.score.update({
+        where: { sessionId_userId: { sessionId, userId } },
+        data: { geminiAnalysis: playerAnalyses[userId] }
+      });
+    }
 
     // Sort by score descending and assign ranks
     return scores

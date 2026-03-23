@@ -3,16 +3,48 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  ADMIN
+  FACILITATOR
+  PLAYER
+}
+
+enum SessionStatus {
+  WAITING
+  ACTIVE
+  NEWS_BREAK
+  PAUSED
+  COMPLETED
+}
+
+enum PlayerStatus {
+  ACTIVE
+  DROPPED
+  KICKED
+}
+
+enum AssetType {
+  STOCK
+  BOND
+  COMMODITY
+  CRYPTO
+  CASH
+  REAL_ESTATE
 }
 
 model User {
   id             String          @id @default(uuid())
   supabaseId     String          @unique
   email          String          @unique
-  displayName    String
-  role           String          @default("PLAYER")
+  firstName      String          @default("")
+  lastName       String          @default("")
+  displayName    String?         // Deprecated, use firstName + lastName
+  role           UserRole        @default(PLAYER)
   mfaEnabled     Boolean         @default(false)
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
@@ -32,11 +64,15 @@ model GameSession {
   id            String          @id @default(uuid())
   code          String          @unique
   name          String
-  status        String          @default("WAITING")
+  status        SessionStatus   @default(WAITING)
   scenarioId    String          @default("TECH_CRISIS")
   facilitatorId String
   maxPlayers    Int             @default(20)
   roundNumber   Int             @default(0)
+  totalRounds   Int             @default(5)
+  format        String          @default("STANDARD")
+  blackSwanEnabled Boolean      @default(false)
+  blackSwanRoundCount Int      @default(0)
   startedAt     DateTime?
   endedAt       DateTime?
   createdAt     DateTime        @default(now())
@@ -57,6 +93,7 @@ model SessionPlayer {
   userId    String
   joinedAt  DateTime    @default(now())
   isActive  Boolean     @default(true)
+  status    PlayerStatus @default(ACTIVE)
   portfolio Portfolio?
   user      User        @relation(fields: [userId], references: [id])
   session   GameSession @relation(fields: [sessionId], references: [id])
@@ -117,15 +154,19 @@ model Holding {
 }
 
 model Asset {
-  id        String       @id @default(uuid())
-  symbol    String       @unique
-  name      String
-  type      String
-  isActive  Boolean      @default(true)
-  createdAt DateTime     @default(now())
-  prices    AssetPrice[]
-  holdings  Holding[]
-  trades    Trade[]
+  id             String       @id @default(uuid())
+  symbol         String       @unique
+  name           String
+  type           AssetType
+  basePrice      Float        @default(100.0)
+  irSensitivity  Float        @default(0.0)
+  infSensitivity Float        @default(0.0)
+  gdpSensitivity Float        @default(0.0)
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  prices         AssetPrice[]
+  holdings       Holding[]
+  trades         Trade[]
 
   @@map("assets")
 }
@@ -199,9 +240,10 @@ model AuditLog {
   actorId   String?
   action    String
   resource  String
-  metadata  String?
+  metadata  Json?
   ipAddress String?
   userAgent String?
+  expiresAt DateTime?
   createdAt DateTime @default(now())
   actor     User?    @relation("ActorLogs", fields: [actorId], references: [id])
 
@@ -209,4 +251,38 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+model Score {
+  id                String   @id @default(uuid())
+  sessionId         String
+  userId            String
+  sharpeRatio       Float    @default(0)
+  maxDrawdown       Float    @default(0)
+  assetDiversity    Float    @default(0)
+  blackSwanSurvival Float    @default(0)
+  finalScore        Float    @default(0)
+  gradeReturn       String   @default("C")
+  gradeDiversity    String   @default("C")
+  gradeRisk         String   @default("C")
+  gradeSurvival     String   @default("C")
+  geminiAnalysis    String?
+  createdAt         DateTime @default(now())
+
+  @@unique([sessionId, userId])
+  @@map("scores")
+}
+
+model TradeRecord {
+  id          String   @id @default(uuid())
+  sessionId   String
+  playerId    String
+  round       Int
+  portfolio   String   // JSON snapshot of allocation %
+  totalValue  Float
+  committedAt DateTime @default(now())
+  isAutoLock  Boolean  @default(false)
+
+  @@index([sessionId, playerId])
+  @@map("trade_records")
 }

@@ -1,7 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { PrismaClient } from '@hackanomics/database';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../prisma';
 
 export interface PortfolioAllocation {
   [assetClass: string]: number; // Percentage (e.g., TECH: 30, BOND: 20)

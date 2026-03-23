@@ -1,8 +1,6 @@
 import { Controller, Get, Patch, Body, Param, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { PrismaClient } from '@hackanomics/database';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../prisma';
 
 @Controller('game')
 export class GameController {

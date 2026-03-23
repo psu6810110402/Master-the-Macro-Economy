@@ -1,10 +1,8 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
-import { PrismaClient } from '@hackanomics/database';
 import { GameService } from '../game/game.service';
 import { SCENARIOS } from '@hackanomics/engine';
 import { GoogleGenAI } from '@google/genai';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../prisma';
 
 @Injectable()
 export class PortfolioService {
@@ -151,6 +149,10 @@ export class PortfolioService {
       throw new NotFoundException('Portfolio not found');
     }
 
+    const scoreRow = await prisma.score.findUnique({
+      where: { sessionId_userId: { sessionId, userId } }
+    });
+
     const { session, portfolio } = sessionPlayer;
     const scenarioId = session.scenarioId || 'TECH_CRISIS';
     const scenario = SCENARIOS.find(s => s.id === scenarioId) || SCENARIOS[0];
@@ -174,10 +176,23 @@ export class PortfolioService {
     - Final Total Portfolio Value (including assets): $${portfolio.totalValue || portfolio.cashBalance}
     - Overall Return: ${portfolio.returnPct || 0}%
     
-    Provide a concise, 2-3 paragraph 'Mission Debrief' critiquing their decisions. 
-    Point out their best strategic move, their worst mistake, and the core macroeconomic lesson they must take away from surviving (or failing) this specific historical scenario.
-    Speak directly to the operative. Tone: Professional, slightly intense, analytical.
-    Format: Use plain text paragraphs. No markdown stars or hashtags.
+    The operative received the following grades (A-F):
+    - Return: ${scoreRow?.gradeReturn || 'N/A'}
+    - Diversity: ${scoreRow?.gradeDiversity || 'N/A'}
+    - Risk Management: ${scoreRow?.gradeRisk || 'N/A'}
+    - Survival (Black Swan): ${scoreRow?.gradeSurvival || 'N/A'}
+
+    Provide a highly structured JSON response ONLY. Do not include markdown code block syntax like \`\`\`json. Just the raw JSON object.
+    Your JSON must have exactly this structure:
+    {
+      "debrief": "A concise 2-paragraph overall mission debrief pointing out their best move and worst mistake.",
+      "grades": {
+        "Return": "Detailed reason why they got this exact grade for Return, and what they should have done differently.",
+        "Diversity": "Reasoning for their Diversity grade, analyzing their asset allocation spread.",
+        "Risk": "Reasoning for their Risk Management grade, analyzing if they took too much risk or played it too safe.",
+        "Survival": "Reasoning for their Survival grade (how exactly they navigated market shocks based on their trades)."
+      }
+    }
     `;
 
     try {
@@ -192,10 +207,18 @@ export class PortfolioService {
         contents: prompt,
       });
 
-      return { analysis: response.text };
+      let responseText = response.text || '';
+      responseText = responseText.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+      
+      try {
+        const parsed = JSON.parse(responseText);
+        return { analysis: parsed };
+      } catch (e) {
+        return { analysis: { debrief: responseText, grades: null } };
+      }
     } catch (error) {
       this.logger.error('Failed to generate AI analysis', error);
-      return { analysis: "We couldn't reach Sector AI for a debrief at this time. However, the numbers speak for themselves. Analyze your own trades and prepare better for the next market cycle." };
+      return { analysis: { debrief: "We couldn't reach Sector AI for a debrief at this time. However, the numbers speak for themselves. Analyze your own trades and prepare better for the next market cycle.", grades: null } };
     }
   }
 }

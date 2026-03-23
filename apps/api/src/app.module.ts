@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from './modules/auth/auth.module';
 import { SessionModule } from './modules/session/session.module';
 import { GameModule } from './modules/game/game.module';
@@ -16,6 +17,7 @@ import { AdminModule } from './modules/admin/admin.module';
       isGlobal: true,
       envFilePath: '../../.env', // Looking up to root workspace .env
     }),
+    ScheduleModule.forRoot(),
     AuthModule,
     AuditModule,
     SessionModule,
