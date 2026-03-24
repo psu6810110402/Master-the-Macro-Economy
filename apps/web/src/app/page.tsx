@@ -282,6 +282,36 @@ export default function LandingPage() {
          </div>
       </section>
 
+      {/* ─── SECTION: ADMIN / FACILITATOR PORTAL ─── */}
+      <section className="relative z-10 py-12 px-8 border-t border-[oklch(var(--border-strong))] bg-[oklch(var(--bg-secondary)/0.3)]">
+         <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-8">
+            <div className="flex items-center gap-4">
+               <Shield className="text-[oklch(var(--text-muted))]" size={24} />
+               <div className="text-left">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-white">Director & Facilitator Access</div>
+                  <div className="text-[9px] text-[oklch(var(--text-muted))] font-bold uppercase tracking-widest mt-1">
+                    System Administrators and Session Runners only.
+                  </div>
+               </div>
+            </div>
+            
+            <div className="flex gap-4">
+               <Button 
+                onClick={() => router.push('/login')}
+                className="bg-transparent text-white border border-white/20 font-black uppercase tracking-widest text-[9px] px-6 h-10 hover:bg-white hover:text-black transition-all rounded-none"
+               >
+                 Sign In
+               </Button>
+               <Button 
+                onClick={() => router.push('/register')}
+                className="bg-transparent text-[oklch(var(--text-muted))] border border-transparent font-black uppercase tracking-widest text-[9px] px-6 h-10 hover:text-white transition-all rounded-none"
+               >
+                 Register
+               </Button>
+            </div>
+         </div>
+      </section>
+
       {/* ─── FOOTER ─── */}
       <footer className="relative z-10 py-12 px-8 border-t border-[oklch(var(--border-strong))] bg-black flex flex-col items-center gap-10">
          <div className="flex flex-wrap justify-center gap-10 font-black text-[9px] uppercase tracking-[0.4em] text-[oklch(var(--status-success))] opacity-40">
