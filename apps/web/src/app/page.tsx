@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion';
 import {
   ArrowRight, Shield, ShieldCheck, LogIn, TrendingUp,
-  Users, Globe2, Activity, Zap, BarChart3, Fingerprint, Cpu
+  Users, Globe2, Activity, Zap, BarChart3, Fingerprint, Cpu,
+  Bot
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@hackanomics/ui';
@@ -22,17 +23,17 @@ const INTELLIGENCE_REPORTS = [
   {
     icon: <Cpu size={20} />,
     title: "MACRO ENGINE v2.0",
-    desc: "A custom-built deterministic simulation engine modeling r, π, and g with high-fidelity asset sensitivity."
+    desc: "A custom-built deterministic simulation engine modeling r, π, and g to generate realistic price action across 7 different asset classes."
   },
   {
-    icon: <Shield size={20} />,
-    title: "BLACK SWAN PROTOCOLS",
-    desc: "Unpredictable disasters injected by facilitators to test risk management and operative resilience."
+    icon: <Bot size={20} />,
+    title: "GEMINI AI ANALYST",
+    desc: "Google Gemini 1.5 Flash batch-analyzes every player's portfolio post-game, generating personalized, harsh-but-fair financial critiques."
   },
   {
-    icon: <BarChart3 size={20} />,
-    title: "SCORING INTELLIGENCE",
-    desc: "Rankings determined by Sharpe Ratios, Max Drawdown, and Diversification—not just raw profit."
+    icon: <Zap size={20} />,
+    title: "TACTICAL HUD",
+    desc: "Zero race-conditions. Immersive 60fps TickingNumbers and a strict 3-stage execution timer ensuring 'institutional-grade' game feel."
   }
 ];
 
@@ -40,10 +41,8 @@ const SCORING_METRICS = [
   { label: "SHARPE RATIO", value: "3.42", color: "text-[oklch(var(--status-success))]" },
   { label: "MAX DRAWDOWN", value: "-4.1%", color: "text-[oklch(var(--status-success))]" },
   { label: "DIVERSITY INDEX", value: "0.89", color: "text-[oklch(var(--accent-brand))]" },
-  { label: "HHI CONCENTRATION", value: "LOW", color: "text-[oklch(var(--status-success))]" },
+  { label: "GEMINI AI GRADE", value: "A-", color: "text-[oklch(var(--status-success))]" },
 ];
-
-// Deleted mock global rankings to stick to per-session spec
 
 const MACRO_INDICATORS = [
   { label: "FED_FUNDS_RATE", value: "5.25%", delta: "+25bps", status: "STABLE" },
@@ -62,6 +61,7 @@ export default function LandingPage() {
   const heroOpacity = useTransform(scrollY, [0, 400], [1, 0]);
   const heroScale = useTransform(scrollY, [0, 600], [1, 1.05]);
   const heroY = useTransform(scrollY, [0, 600], [0, 100]);
+  const router = useRouter();
 
   useEffect(() => {
     api.get<User>('auth/me').then(setUser).catch(() => setUser(null));
@@ -97,7 +97,7 @@ export default function LandingPage() {
          >
             <div className="inline-flex items-center gap-3 px-3 py-1.5 bg-white/5 border border-white/10 backdrop-blur-md">
                <Activity size={12} className="text-[oklch(var(--accent-brand))] animate-pulse" />
-               <span className="text-[9px] font-black uppercase tracking-[0.4em] text-white">Active Macro Engine v2.0</span>
+               <span className="text-[9px] font-black uppercase tracking-[0.4em] text-white">Hackanomics 2026 Submission</span>
             </div>
             
             <div className="space-y-4">
@@ -109,17 +109,18 @@ export default function LandingPage() {
 
             <div className="max-w-xl space-y-8">
                <p className="text-base md:text-lg text-[oklch(var(--text-muted))] leading-relaxed font-medium uppercase tracking-tight opacity-70">
-                 An elite financial simulation for serious operatives. Leverage data, survive market collapses, and outmaneuver global economic warfare in real-time.
+                 An institutional-grade financial simulation. Leverage data, survive market collapses, and outmaneuver macroeconomic warfare across 7 asset classes in real-time.
                </p>
                
                <div className="flex flex-wrap gap-4">
                   <Button 
                    onClick={() => setIsAuthOpen(true)}
-                   className="group relative px-8 h-12 bg-white !text-black font-black uppercase tracking-[0.2em] text-[9px] overflow-hidden border-none rounded-none hover:bg-[oklch(var(--accent-brand))] hover:!text-white transition-colors"
+                   className="group relative px-8 h-12 bg-white !text-black font-black uppercase tracking-[0.2em] text-[10px] overflow-hidden border-none rounded-none hover:bg-[oklch(var(--accent-brand))] hover:!text-white transition-colors"
                   >
-                    <span className="relative z-10 flex items-center gap-3">Establish Link <ArrowRight size={12} className="group-hover:translate-x-1 transition-transform" /></span>
+                    <span className="relative z-10 flex items-center gap-3">Login / Register <ArrowRight size={12} className="group-hover:translate-x-1 transition-transform" /></span>
                   </Button>
                   <Button 
+                   onClick={() => router.push('/manuals/player')}
                    className="px-8 h-12 bg-transparent border border-white/20 text-white font-black uppercase tracking-[0.2em] text-[9px] hover:bg-white/5 rounded-none"
                   >
                     View Intel Reports
@@ -131,15 +132,19 @@ export default function LandingPage() {
 
       {/* ─── SECTION: MACRO TICKER ─── */}
       <section className="relative z-10 border-y border-[oklch(var(--border-strong)/0.5)] bg-black/40 backdrop-blur-md overflow-hidden">
-        <div className="flex divide-x divide-[oklch(var(--border-strong)/0.5)]">
-           {MACRO_INDICATORS.concat(MACRO_INDICATORS).map((metric, i) => (
+        <motion.div 
+          animate={{ x: ['0%', '-50%'] }}
+          transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
+          className="flex whitespace-nowrap divide-x divide-[oklch(var(--border-strong)/0.5)]"
+        >
+           {MACRO_INDICATORS.concat(MACRO_INDICATORS, MACRO_INDICATORS, MACRO_INDICATORS).map((metric, i) => (
              <div key={i} className="flex-shrink-0 px-10 py-5 flex items-center gap-6 group hover:bg-white/5 transition-colors cursor-default">
                <div className="text-[8px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">{metric.label}</div>
                <div className="text-lg font-black font-display text-white tabular-nums">{metric.value}</div>
                <div className="text-[8px] font-black uppercase tracking-widest text-[oklch(var(--status-success))]">{metric.delta}</div>
              </div>
            ))}
-        </div>
+        </motion.div>
       </section>
 
       {/* ─── SECTION: FEATURES (INTELLIGENCE) ─── */}
@@ -155,12 +160,12 @@ export default function LandingPage() {
                </p>
                <div className="pt-6 grid grid-cols-2 gap-8 border-t border-[oklch(var(--border-strong))]">
                   <div>
-                     <div className="text-3xl font-black font-display text-white mb-2">100+</div>
-                     <div className="text-[8px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">Simulated Assets</div>
+                     <div className="text-3xl font-black font-display text-white mb-2">7</div>
+                     <div className="text-[8px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">Distinct Asset Classes</div>
                   </div>
                   <div>
-                     <div className="text-3xl font-black font-display text-white mb-2">32</div>
-                     <div className="text-[8px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">Crisis Scenarios</div>
+                     <div className="text-3xl font-black font-display text-white mb-2">1∞</div>
+                     <div className="text-[8px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">Gemini AI Combinations</div>
                   </div>
                </div>
             </div>
@@ -202,11 +207,11 @@ export default function LandingPage() {
             <div className="flex-1 w-full relative">
                <div className="absolute inset-0 bg-[oklch(var(--accent-brand)/0.05)] blur-[120px] rounded-full" />
                 <div className="relative border border-[oklch(var(--border-strong))] bg-[oklch(var(--bg-main))] overflow-hidden shadow-2xl skew-y-[-1deg] p-12 flex flex-col items-center justify-center text-center space-y-6">
-                   <Globe2 size={48} className="text-[oklch(var(--accent-brand))] opacity-20" />
+                   <ShieldCheck size={48} className="text-[oklch(var(--status-success))] opacity-20" />
                    <div className="space-y-2">
-                      <h3 className="text-xl font-black uppercase tracking-tighter italic">Session-Locked Intelligence</h3>
+                      <h3 className="text-xl font-black uppercase tracking-tighter italic text-[oklch(var(--status-success))]">Post-Game Debrief via AI</h3>
                       <p className="text-[10px] text-[oklch(var(--text-muted))] uppercase font-bold tracking-widest leading-relaxed max-w-xs">
-                        Operative rankings are strictly confined to active mission sessions for operational security.
+                        Google Gemini 1.5 Flash evaluates your Sharpe Ratio and capital allocation history against peers, issuing a personalized operational grade.
                       </p>
                    </div>
                 </div>
@@ -214,10 +219,10 @@ export default function LandingPage() {
 
             <div className="flex-1 space-y-10">
                <h2 className="text-4xl font-black uppercase tracking-tighter italic leading-[0.85]">
-                 <span className="text-[oklch(var(--accent-brand))]">Smooth</span> <br/>Scoring.
+                 <span className="text-[oklch(var(--status-success))]">Institutional</span> <br/>Scoring.
                </h2>
                <p className="text-xs text-[oklch(var(--text-muted))] leading-relaxed max-w-sm uppercase font-bold opacity-60">
-                 Experience real-time updates with seamless transitions. Our dynamic engine evaluates operatives instantly as the market shifts.
+                 Profits are not enough. Our engine evaluates operatives based on risk-adjusted returns and drawdown survival.
                </p>
                
                <div className="grid grid-cols-2 gap-px bg-[oklch(var(--border-strong))] border border-[oklch(var(--border-strong))] overflow-hidden">
@@ -243,39 +248,37 @@ export default function LandingPage() {
               Ready For <br/><span className="text-white">Deployment?</span>
             </h2>
             <p className="text-sm text-[oklch(var(--text-muted))] max-w-md mx-auto font-medium uppercase tracking-widest opacity-60">
-              Join thousands of operatives currently battling global economic instability.
+              Join the live simulation and secure your tactical advantage.
             </p>
             <div className="pt-6">
                <Button 
                 onClick={() => setIsAuthOpen(true)}
-                className="group relative px-12 h-14 bg-white !text-black font-black uppercase tracking-[0.3em] text-[9px] overflow-hidden border-none rounded-none shadow-2xl hover:bg-[oklch(var(--accent-brand))] hover:!text-white transition-all"
+                className="group relative px-12 h-14 bg-white !text-black font-black uppercase tracking-[0.3em] text-[10px] overflow-hidden border-none rounded-none shadow-2xl hover:bg-[oklch(var(--accent-brand))] hover:!text-white transition-all"
                >
-                 <span className="relative z-10">Access System Terminal</span>
+                 <span className="relative z-10">Login / Register</span>
                </Button>
             </div>
          </div>
       </section>
 
       {/* ─── FOOTER ─── */}
-      {user?.role === 'ADMIN' && (
-        <footer className="relative z-10 py-12 px-8 border-t border-[oklch(var(--border-strong))] bg-black flex flex-col items-center gap-10">
-           <div className="flex flex-wrap justify-center gap-10 font-black text-[9px] uppercase tracking-[0.4em] text-[oklch(var(--status-success))] opacity-40">
-              <span className="flex items-center gap-2"><ShieldCheck size={12} /> SOC2_TYPE_II</span>
-              <span className="flex items-center gap-2"><Zap size={12} /> PDPA_COMPLIANT</span>
-              <span className="flex items-center gap-2"><Globe2 size={12} /> GLOBAL_READY</span>
-           </div>
-           
-           <div className="flex flex-col items-center gap-4">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 bg-white text-black flex items-center justify-center font-black text-sm italic skew-x-[-12deg]">F</div>
-                <span className="font-black uppercase tracking-[0.3em] text-[9px]">FinSim <span className="opacity-40">Terminal</span></span>
-              </div>
-              <div className="text-[8px] font-black uppercase tracking-[0.3em] text-[oklch(var(--text-muted))] text-center">
-                © 2026 Hackanomics Systems. <br className="md:hidden"/> All Rights Reserved.
-              </div>
-           </div>
-        </footer>
-      )}
+      <footer className="relative z-10 py-12 px-8 border-t border-[oklch(var(--border-strong))] bg-black flex flex-col items-center gap-10">
+         <div className="flex flex-wrap justify-center gap-10 font-black text-[9px] uppercase tracking-[0.4em] text-[oklch(var(--status-success))] opacity-40">
+            <span className="flex items-center gap-2"><ShieldCheck size={12} /> HACKANOMICS_2026_ENTRY</span>
+            <span className="flex items-center gap-2"><Cpu size={12} /> GEMINI_AI_INTEGRATED</span>
+            <span className="flex items-center gap-2"><Globe2 size={12} /> DETERMINISTIC_ENGINE</span>
+         </div>
+         
+         <div className="flex flex-col items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 bg-[oklch(var(--accent-brand))] text-black flex items-center justify-center font-black text-sm italic skew-x-[-12deg]">H</div>
+              <span className="font-black uppercase tracking-[0.3em] text-[9px]">Hackanomics <span className="opacity-40">Systems</span></span>
+            </div>
+            <div className="text-[8px] font-black uppercase tracking-[0.3em] text-[oklch(var(--text-muted))] text-center">
+              © 2026 Aphichat Jahyo. <br className="md:hidden"/> All Rights Reserved.
+            </div>
+         </div>
+      </footer>
     </main>
   );
 }

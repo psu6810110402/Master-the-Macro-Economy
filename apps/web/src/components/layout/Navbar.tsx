@@ -29,10 +29,9 @@ export default function Navbar({ onAuthClick }: { onAuthClick: () => void }) {
   }, []);
 
   const menuItems = [
-    { label: 'Intelligence', href: '#features' },
-    { label: 'The Engine', href: '#engine' },
-    { label: 'Ops Briefing', href: '#how-to-play' },
-    { label: 'Leaderboard', href: '#scores' },
+    { label: 'Intelligence', href: '/#features' },
+    { label: 'Intel Manuals', href: '/manuals/player' },
+    { label: 'Scoring System', href: '/#scores' },
   ];
 
   return (
@@ -85,7 +84,7 @@ export default function Navbar({ onAuthClick }: { onAuthClick: () => void }) {
               onClick={onAuthClick} 
               className="px-8 py-2.5 bg-transparent text-white border border-white hover:bg-white hover:text-black transition-all text-[9px] font-black uppercase tracking-widest rounded-none"
             >
-              System Login <LogIn size={12} className="ml-2 inline" />
+              Login / Register <LogIn size={12} className="ml-2 inline" />
             </Button>
           )}
         </div>
@@ -131,7 +130,7 @@ export default function Navbar({ onAuthClick }: { onAuthClick: () => void }) {
                 }}
                 className="w-full py-4 bg-white text-black font-black uppercase tracking-widest text-[10px] rounded-none"
               >
-                {user ? `Go To ${user.role}` : 'System Login'}
+                {user ? `Go To ${user.role}` : 'Login / Register'}
               </Button>
             </div>
           </motion.div>
