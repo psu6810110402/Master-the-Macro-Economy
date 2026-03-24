@@ -115,15 +115,21 @@ export default function LandingPage() {
       <Navbar onAuthClick={() => setIsAuthOpen(true)} />
       <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
 
-      {/* Background FX */}
-      <div className="fixed inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.05] pointer-events-none z-0" />
+      {/* Background FX (Fixed 404/403 Errors) */}
+      <div 
+        className="fixed inset-0 opacity-[0.05] pointer-events-none z-0" 
+        style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E\")" }}
+      />
       <div className="fixed top-[-10%] left-[-10%] w-[50vw] h-[50vw] bg-[oklch(var(--accent-brand))] opacity-[0.02] blur-[150px] pointer-events-none rounded-full z-0" />
 
       {/* ─── SECTION: HERO ─── */}
       <section className="relative min-h-screen flex flex-col justify-center px-8 pt-20 overflow-hidden">
          <div className="absolute inset-0 z-0 opacity-10">
             <div className="absolute top-[20%] left-[10%] w-[40vw] h-[40vw] bg-[oklch(var(--accent-brand))] blur-[150px] rounded-full" />
-            <div className="absolute inset-0 bg-[url('/grid.svg')] bg-center [mask-image:radial-gradient(ellipse_at_center,white,transparent_80%)]" />
+            <div 
+              className="absolute inset-0 bg-center [mask-image:radial-gradient(ellipse_at_center,white,transparent_80%)]" 
+              style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath d='M0 40V0h40' stroke='rgba(255,255,255,0.05)' stroke-width='1' fill='none'/%3E%3C/svg%3E\")" }}
+            />
          </div>
 
          <motion.div 
