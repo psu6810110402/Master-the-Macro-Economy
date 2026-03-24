@@ -30,7 +30,7 @@ export default function Navbar({ onAuthClick }: { onAuthClick: () => void }) {
 
   const menuItems = [
     { label: 'Intelligence', href: '/#features' },
-    { label: 'Intel Manuals', href: '/manuals/player' },
+    { label: 'About Platform', href: '/#about' },
     { label: 'Scoring System', href: '/#scores' },
   ];
 

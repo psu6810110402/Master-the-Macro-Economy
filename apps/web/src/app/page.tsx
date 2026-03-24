@@ -120,10 +120,10 @@ export default function LandingPage() {
                     <span className="relative z-10 flex items-center gap-3">Login / Register <ArrowRight size={12} className="group-hover:translate-x-1 transition-transform" /></span>
                   </Button>
                   <Button 
-                   onClick={() => router.push('/manuals/player')}
+                   onClick={() => router.push('/#about')}
                    className="px-8 h-12 bg-transparent border border-white/20 text-white font-black uppercase tracking-[0.2em] text-[9px] hover:bg-white/5 rounded-none"
                   >
-                    View Intel Reports
+                    What is this?
                   </Button>
                </div>
             </div>
@@ -145,6 +145,27 @@ export default function LandingPage() {
              </div>
            ))}
         </motion.div>
+      </section>
+
+      {/* ─── SECTION: ABOUT ─── */}
+      <section id="about" className="relative z-10 py-32 px-8 bg-black/20">
+        <div className="max-w-4xl mx-auto text-center space-y-10">
+          <Shield className="mx-auto text-[oklch(var(--accent-brand))] w-16 h-16 opacity-50" />
+          <h2 className="text-4xl md:text-5xl font-black uppercase tracking-tighter italic">
+            What is <span className="text-[oklch(var(--accent-brand))]">Hackanomics?</span>
+          </h2>
+          <div className="space-y-6 text-sm md:text-base text-[oklch(var(--text-muted))] leading-relaxed max-w-2xl mx-auto font-medium">
+            <p>
+              Hackanomics is an <span className="text-white font-bold">institutional-grade financial simulation</span> built for the Hackonomics 2026 competition. It transforms the boring concept of financial literacy into a high-octane, real-time trading experience.
+            </p>
+            <p>
+              Players take on the role of operative fund managers. You must analyze breaking news, inflation data, and interest rates, then allocate capital across 7 asset classes (TECH, INDUSTRIAL, CONSUMER, BONDS, GOLD, CRYPTO, CASH) before a strict timer runs out. 
+            </p>
+            <p>
+              When the 5-round simulation ends, <span className="text-[oklch(var(--status-success))] font-bold">Google Gemini 1.5 Flash</span> analyzes your portfolio's Sharpe Ratio and risk management, delivering a personalized financial critique.
+            </p>
+          </div>
+        </div>
       </section>
 
       {/* ─── SECTION: FEATURES (INTELLIGENCE) ─── */}
