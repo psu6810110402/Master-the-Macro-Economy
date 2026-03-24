@@ -50,6 +50,41 @@ const MACRO_INDICATORS = [
   { label: "REAL_GDP_NOW", value: "2.4%", delta: "+0.1%", status: "GROWTH" },
 ];
 
+const staggerContainer = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1, delayChildren: 0.1 }
+  }
+};
+
+const fadeUpItem = {
+  hidden: { opacity: 0, y: 40 },
+  show: { 
+    opacity: 1, 
+    y: 0,
+    transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] as const }
+  }
+};
+
+const fadeLeftItem = {
+  hidden: { opacity: 0, x: -40 },
+  show: { 
+    opacity: 1, 
+    x: 0,
+    transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] as const }
+  }
+};
+
+const fadeRightItem = {
+  hidden: { opacity: 0, x: 40 },
+  show: { 
+    opacity: 1, 
+    x: 0,
+    transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] as const }
+  }
+};
+
 // ─── LANDING PAGE COMPONENT ──────────────────────────────────────────────
 
 export default function LandingPage() {
@@ -148,13 +183,21 @@ export default function LandingPage() {
       </section>
 
       {/* ─── SECTION: ABOUT ─── */}
-      <section id="about" className="relative z-10 py-32 px-8 bg-black/20">
-        <div className="max-w-4xl mx-auto text-center space-y-10">
-          <Shield className="mx-auto text-[oklch(var(--accent-brand))] w-16 h-16 opacity-50" />
-          <h2 className="text-4xl md:text-5xl font-black uppercase tracking-tighter italic">
+      <section id="about" className="relative z-10 py-32 px-8 bg-black/20 overflow-hidden">
+        <motion.div 
+          variants={staggerContainer}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: "-100px" }}
+          className="max-w-4xl mx-auto text-center space-y-10"
+        >
+          <motion.div variants={fadeUpItem}>
+            <Shield className="mx-auto text-[oklch(var(--accent-brand))] w-16 h-16 opacity-50" />
+          </motion.div>
+          <motion.h2 variants={fadeUpItem} className="text-4xl md:text-5xl font-black uppercase tracking-tighter italic">
             What is <span className="text-[oklch(var(--accent-brand))]">Hackanomics?</span>
-          </h2>
-          <div className="space-y-6 text-sm md:text-base text-[oklch(var(--text-muted))] leading-relaxed max-w-2xl mx-auto font-medium">
+          </motion.h2>
+          <motion.div variants={fadeUpItem} className="space-y-6 text-sm md:text-base text-[oklch(var(--text-muted))] leading-relaxed max-w-2xl mx-auto font-medium">
             <p>
               Hackanomics is an <span className="text-white font-bold">institutional-grade financial simulation</span> built for the Hackonomics 2026 competition. It transforms the boring concept of financial literacy into a high-octane, real-time trading experience.
             </p>
@@ -164,15 +207,21 @@ export default function LandingPage() {
             <p>
               When the 5-round simulation ends, <span className="text-[oklch(var(--status-success))] font-bold">Google Gemini 1.5 Flash</span> analyzes your portfolio's Sharpe Ratio and risk management, delivering a personalized financial critique.
             </p>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       </section>
 
       {/* ─── SECTION: FEATURES (INTELLIGENCE) ─── */}
-      <section id="features" className="relative z-10 py-32 px-8">
-        <div className="max-w-7xl mx-auto">
+      <section id="features" className="relative z-10 py-32 px-8 overflow-hidden">
+        <motion.div 
+          variants={staggerContainer}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: "-100px" }}
+          className="max-w-7xl mx-auto"
+        >
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 items-center">
-            <div className="lg:col-span-5 space-y-10">
+            <motion.div variants={fadeLeftItem} className="lg:col-span-5 space-y-10">
                <h2 className="text-4xl font-black uppercase tracking-tighter italic leading-[0.85]">
                  Tactical <br/><span className="text-[oklch(var(--accent-brand))]">Superiority.</span>
                </h2>
@@ -189,14 +238,15 @@ export default function LandingPage() {
                      <div className="text-[8px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">Gemini AI Combinations</div>
                   </div>
                </div>
-            </div>
+            </motion.div>
 
-            <div className="lg:col-span-7 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <motion.div variants={fadeRightItem} className="lg:col-span-7 grid grid-cols-1 md:grid-cols-2 gap-3">
                {INTELLIGENCE_REPORTS.map((report, i) => (
                  <motion.div
                     key={i}
-                    whileHover={{ y: -3 }}
-                    className="p-8 border border-[oklch(var(--border-strong))] bg-[oklch(var(--bg-secondary)/0.5)] hover:border-[oklch(var(--accent-brand)/0.5)] transition-all flex flex-col justify-between h-[320px] group"
+                    variants={fadeUpItem}
+                    whileHover={{ scale: 1.02, y: -5, transition: { duration: 0.2 } }}
+                    className="p-8 border border-[oklch(var(--border-strong))] bg-[oklch(var(--bg-secondary)/0.5)] hover:border-[oklch(var(--accent-brand)/0.5)] transition-colors flex flex-col justify-between h-[320px] group cursor-default"
                  >
                     <div className="p-3 w-12 h-12 bg-black flex items-center justify-center border border-white/10 text-[oklch(var(--accent-brand))]">
                       {report.icon}
@@ -209,23 +259,29 @@ export default function LandingPage() {
                     </div>
                  </motion.div>
                ))}
-               <div className="p-8 border border-dashed border-[oklch(var(--border-strong))] flex items-center justify-center h-[320px]">
+               <motion.div variants={fadeUpItem} className="p-8 border border-dashed border-[oklch(var(--border-strong))] flex items-center justify-center h-[320px]">
                   <div className="text-center">
                     <Fingerprint size={32} className="mx-auto mb-4 text-[oklch(var(--accent-brand))] opacity-20" />
                     <div className="text-[8px] font-black uppercase tracking-[0.3em] text-[oklch(var(--text-muted))]">Awaiting Intel...</div>
                   </div>
-               </div>
-            </div>
+               </motion.div>
+            </motion.div>
           </div>
-        </div>
+        </motion.div>
       </section>
 
       {/* ─── SECTION: SMOOTH SCORING SHOWCASE ─── */}
-      <section id="scores" className="relative z-10 py-32 px-8 bg-black/40">
-        <div className="max-w-7xl mx-auto">
+      <section id="scores" className="relative z-10 py-32 px-8 bg-black/40 overflow-hidden">
+        <motion.div 
+          variants={staggerContainer}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: "-100px" }}
+          className="max-w-7xl mx-auto"
+        >
           <div className="flex flex-col lg:flex-row gap-16 items-center">
             
-            <div className="flex-1 w-full relative">
+            <motion.div variants={fadeLeftItem} className="flex-1 w-full relative">
                <div className="absolute inset-0 bg-[oklch(var(--accent-brand)/0.05)] blur-[120px] rounded-full" />
                 <div className="relative border border-[oklch(var(--border-strong))] bg-[oklch(var(--bg-main))] overflow-hidden shadow-2xl skew-y-[-1deg] p-12 flex flex-col items-center justify-center text-center space-y-6">
                    <ShieldCheck size={48} className="text-[oklch(var(--status-success))] opacity-20" />
@@ -236,9 +292,9 @@ export default function LandingPage() {
                       </p>
                    </div>
                 </div>
-            </div>
+            </motion.div>
 
-            <div className="flex-1 space-y-10">
+            <motion.div variants={fadeRightItem} className="flex-1 space-y-10">
                <h2 className="text-4xl font-black uppercase tracking-tighter italic leading-[0.85]">
                  <span className="text-[oklch(var(--status-success))]">Institutional</span> <br/>Scoring.
                </h2>
@@ -248,7 +304,7 @@ export default function LandingPage() {
                
                <div className="grid grid-cols-2 gap-px bg-[oklch(var(--border-strong))] border border-[oklch(var(--border-strong))] overflow-hidden">
                   {SCORING_METRICS.map((metric, i) => (
-                    <div key={i} className="p-6 bg-[oklch(var(--bg-main))] relative group overflow-hidden">
+                    <div key={i} className="p-6 bg-[oklch(var(--bg-main))] relative group overflow-hidden hover:bg-white/5 transition-colors">
                         <div className="text-[8px] font-black uppercase tracking-[0.3em] text-[oklch(var(--text-muted))] mb-2">{metric.label}</div>
                         <div className={`text-2xl font-black font-display ${metric.color} tabular-nums`}>{metric.value}</div>
                         {activeMetricIndex === i && (
@@ -257,34 +313,46 @@ export default function LandingPage() {
                     </div>
                   ))}
                </div>
-            </div>
+            </motion.div>
           </div>
-        </div>
+        </motion.div>
       </section>
 
       {/* ─── SECTION: CALL TO ACTION ─── */}
-      <section className="relative z-10 py-32 px-8 text-center bg-transparent">
-         <div className="max-w-4xl mx-auto space-y-10">
-            <h2 className="text-5xl md:text-7xl font-black uppercase leading-[0.85] tracking-tighter italic">
+      <section className="relative z-10 py-32 px-8 text-center bg-transparent overflow-hidden">
+         <motion.div 
+            variants={staggerContainer}
+            initial="hidden"
+            whileInView="show"
+            viewport={{ once: true, margin: "-100px" }}
+            className="max-w-4xl mx-auto space-y-10"
+         >
+            <motion.h2 variants={fadeUpItem} className="text-5xl md:text-7xl font-black uppercase leading-[0.85] tracking-tighter italic">
               Ready For <br/><span className="text-white">Deployment?</span>
-            </h2>
-            <p className="text-sm text-[oklch(var(--text-muted))] max-w-md mx-auto font-medium uppercase tracking-widest opacity-60">
+            </motion.h2>
+            <motion.p variants={fadeUpItem} className="text-sm text-[oklch(var(--text-muted))] max-w-md mx-auto font-medium uppercase tracking-widest opacity-60">
               Join the live simulation and secure your tactical advantage.
-            </p>
-            <div className="pt-6">
+            </motion.p>
+            <motion.div variants={fadeUpItem} className="pt-6">
                <Button 
                 onClick={() => setIsAuthOpen(true)}
                 className="group relative px-12 h-14 bg-white !text-black font-black uppercase tracking-[0.3em] text-[10px] overflow-hidden border-none rounded-none shadow-2xl hover:bg-[oklch(var(--accent-brand))] hover:!text-white transition-all"
                >
                  <span className="relative z-10">Login / Register</span>
                </Button>
-            </div>
-         </div>
+            </motion.div>
+         </motion.div>
       </section>
 
       {/* ─── SECTION: ADMIN / FACILITATOR PORTAL ─── */}
-      <section className="relative z-10 py-12 px-8 border-t border-[oklch(var(--border-strong))] bg-[oklch(var(--bg-secondary)/0.3)]">
-         <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-8">
+      <section className="relative z-10 py-12 px-8 border-t border-[oklch(var(--border-strong))] bg-[oklch(var(--bg-secondary)/0.3)] overflow-hidden">
+         <motion.div 
+            initial={{ opacity: 0, scale: 0.98 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+            className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-8"
+         >
             <div className="flex items-center gap-4">
                <Shield className="text-[oklch(var(--text-muted))]" size={24} />
                <div className="text-left">
@@ -298,18 +366,18 @@ export default function LandingPage() {
             <div className="flex gap-4">
                <Button 
                 onClick={() => router.push('/login')}
-                className="bg-transparent text-white border border-white/20 font-black uppercase tracking-widest text-[9px] px-6 h-10 hover:bg-white hover:text-black transition-all rounded-none"
+                className="bg-transparent text-white border border-white/20 font-black uppercase tracking-widest text-[9px] px-6 h-10 hover:bg-white hover:text-black transition-all rounded-none hover:scale-105 active:scale-95"
                >
                  Sign In
                </Button>
                <Button 
                 onClick={() => router.push('/register')}
-                className="bg-transparent text-[oklch(var(--text-muted))] border border-transparent font-black uppercase tracking-widest text-[9px] px-6 h-10 hover:text-white transition-all rounded-none"
+                className="bg-transparent text-[oklch(var(--text-muted))] border border-transparent font-black uppercase tracking-widest text-[9px] px-6 h-10 hover:text-white transition-all rounded-none hover:scale-105 active:scale-95"
                >
                  Register
                </Button>
             </div>
-         </div>
+         </motion.div>
       </section>
 
       {/* ─── FOOTER ─── */}
