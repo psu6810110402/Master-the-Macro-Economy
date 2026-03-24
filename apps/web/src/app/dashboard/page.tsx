@@ -42,6 +42,7 @@ export default function DashboardPage() {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [currentRound, setCurrentRound] = useState<number>(0);
+  const [gameStatus, setGameStatus] = useState<string>('WAITING');
 
   useEffect(() => {
     if (contextSessionId) setSessionId(contextSessionId);
@@ -92,6 +93,7 @@ export default function DashboardPage() {
       setPrices(lastEvent.data.assetPrices || {});
       setPreviousPrices(lastEvent.data.assetPrices || {});
       setCurrentRound(lastEvent.data.round || lastEvent.data.currentRound || 0);
+      setGameStatus(lastEvent.data.status || 'WAITING');
       
       if (lastEvent.data.status === 'COMPLETED') {
         setRankings(lastEvent.data.rankings || []);
@@ -109,6 +111,7 @@ export default function DashboardPage() {
       setPrices(lastEvent.data.assetPrices);
       setCurrentRound(lastEvent.data.round);
       setIsLocked(false);
+      setGameStatus('ACTIVE');
       
       if (lastEvent.data.news) {
         setNews(lastEvent.data.news);
@@ -149,6 +152,24 @@ export default function DashboardPage() {
         <div className="h-[60vh] flex flex-col items-center justify-center opacity-20 uppercase tracking-[0.3em] font-black">
           <div className="w-12 h-[2px] bg-[oklch(var(--accent-brand))] mb-4 animate-pulse" />
           Synchronizing with Global Market...
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (gameStatus === 'WAITING' || (isConnected && !lastEvent)) {
+    return (
+      <DashboardLayout title="Universal Lobby" currentRound={0} totalValue={portfolio?.totalValue || 100000}>
+        <div className="h-[60vh] flex flex-col items-center justify-center space-y-6">
+          <div className="w-16 h-16 rounded-full border border-[oklch(var(--border-strong))] flex items-center justify-center bg-[oklch(var(--bg-secondary))] animate-pulse">
+            <Lock className="text-[oklch(var(--text-muted))]" size={24} />
+          </div>
+          <div className="text-center space-y-2">
+            <h2 className="text-2xl font-black uppercase tracking-widest italic">Awaiting Facilitator</h2>
+            <p className="text-[10px] text-[oklch(var(--text-muted))] uppercase tracking-[0.3em] font-bold">
+              The strategic simulation will commence shortly.<br/>Please hold your position.
+            </p>
+          </div>
         </div>
       </DashboardLayout>
     );
