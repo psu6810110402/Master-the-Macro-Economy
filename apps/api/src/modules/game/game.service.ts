@@ -22,42 +22,41 @@ export class GameService {
       return this.engines.get(sessionId)!;
     }
 
-    const session = await prisma.gameSession.findUnique({
-      where: { id: sessionId },
-    });
+    const [session, assets] = await Promise.all([
+      prisma.gameSession.findUnique({ where: { id: sessionId } }),
+      prisma.asset.findMany({ where: { isActive: true } }),
+    ]);
 
     if (!session) {
       throw new NotFoundException('Session not found');
     }
 
-    const initialState: GameState = {
+    const prices: Record<string, number> = {};
+    const latestPrices = await prisma.assetPrice.findMany({
+      where: { 
+        assetId: { in: assets.map(a => a.id) },
+        sessionId // Prioritize current session history
+      },
+      distinct: ['assetId'],
+      orderBy: { recordedAt: 'desc' },
+    });
+
+    const priceMap = new Map(latestPrices.map(p => [p.assetId, Number(p.price)]));
+
+    for (const asset of assets) {
+      prices[asset.symbol] = priceMap.get(asset.id) || 
+        (this.marketService.getBasePrice(asset.symbol) || 100);
+    }
+
+    const engine = new GameEngine({
       players: [],
       currentRound: session.roundNumber || 1,
       isPaused: session.status === 'PAUSED',
       status: session.status as any,
       scenarioId: session.scenarioId,
-      assetPrices: {},
-    };
+      assetPrices: prices,
+    });
 
-    // Initialize with realistic baseline prices from DB or market.service defaults
-    const assets = await prisma.asset.findMany({ where: { isActive: true } });
-    const prices: Record<string, number> = {};
-    
-    for (const asset of assets) {
-      // Try to get the latest price from AssetPrice records
-      const latestPrice = await prisma.assetPrice.findFirst({
-        where: { assetId: asset.id },
-        orderBy: { recordedAt: 'desc' },
-      });
-      
-      // Use: DB price → MarketService base prices → fallback 100
-      prices[asset.symbol] = latestPrice 
-        ? Number(latestPrice.price) 
-        : (this.marketService.getBasePrice(asset.symbol) || 100);
-    }
-    initialState.assetPrices = prices;
-
-    const engine = new GameEngine(initialState);
     this.engines.set(sessionId, engine);
     return engine;
   }
