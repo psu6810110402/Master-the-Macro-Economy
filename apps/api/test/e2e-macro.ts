@@ -2,7 +2,7 @@ import { PrismaClient } from '@hackanomics/database';
 import axios, { AxiosInstance } from 'axios';
 
 const prisma = new PrismaClient();
-const API_URL = 'http://localhost:3001';
+const API_URL = 'http://localhost:3002';
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
 

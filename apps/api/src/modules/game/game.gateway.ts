@@ -17,6 +17,7 @@ import { BlackSwanService } from '../macro-engine/black-swan.service';
 import { OnModuleInit } from '@nestjs/common';
 import { prisma } from '../../prisma';
 import { DEFAULT_ALLOCATION, DEFAULT_100_CASH } from '@hackanomics/engine';
+import { GAME_CONFIG } from './game.constants';
 
 @WebSocketGateway({
   cors: {
@@ -28,15 +29,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
   server!: Server;
 
   private readonly logger = new Logger(GameGateway.name);
-  private timerIntervals = new Map<string, NodeJS.Timeout>();
   // Track which session each client belongs to for disconnect handling
   private clientSessions = new Map<string, { sessionId: string; userId: string; displayName: string }>();
-  // Store draft allocations for auto-lock fallback
-  private draftAllocations = new Map<string, Record<string, number>>();
   // Fix #21: Track player activity for auto-kick
   private lastSeen = new Map<string, number>();
 
   constructor(
+    @Inject(forwardRef(() => GameService))
     private gameService: GameService,
     private tradeResolution: TradeResolutionService,
     @Inject(forwardRef(() => LeaderboardService))
@@ -163,11 +162,32 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     
     const session = await prisma.gameSession.findUnique({ where: { id: data.sessionId } });
 
+    // Fetch previous round prices for delta calculation on frontend
+    const currentRound = engine.getState().currentRound;
+    let previousPrices = engine.getState().assetPrices;
+    if (currentRound > 0) {
+      const prevRoundNum = currentRound === 1 ? 0 : currentRound - 1;
+      const prevRound = await prisma.round.findFirst({
+        where: { sessionId: data.sessionId, roundNumber: prevRoundNum },
+        orderBy: { startedAt: 'desc' },
+      });
+      if (prevRound?.priceSnapshot) {
+        try { previousPrices = JSON.parse(prevRound.priceSnapshot); } catch (e) {}
+      } else if (currentRound === 1) {
+        // Round 1 fallback: Compare to baseline 100s
+        const assets = await prisma.asset.findMany({ where: { isActive: true } });
+        const baseline: Record<string, number> = {};
+        assets.forEach(a => { baseline[a.symbol] = 100; }); 
+        previousPrices = baseline;
+      }
+    }
+
     return { 
       status: 'ok', 
       state: { 
         ...engine.getState(), 
-        round: engine.getState().currentRound, // Normalize for frontend
+        round: currentRound, // Normalize for frontend
+        previousPrices,
         totalRounds: session?.totalRounds || 5 
       } 
     };
@@ -189,6 +209,11 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
 
   public async broadcastStartSession(sessionId: string, payload: RoundPayload) {
     await this.emitRoundStart(sessionId, payload);
+    const engine = await this.gameService.getOrCreateEngine(sessionId);
+    if (engine.isEveryoneNewsAcked() || this.areConnectedPlayersNewsAcked(sessionId, engine)) {
+      const newState = await this.gameService.openMarket(sessionId);
+      await this.broadcastOpenMarket(sessionId, newState);
+    }
   }
 
   public async broadcastNextRound(sessionId: string, payload: RoundPayload) {
@@ -201,15 +226,20 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
       });
     } else {
       await this.emitRoundStart(sessionId, payload);
+      const engine = await this.gameService.getOrCreateEngine(sessionId);
+      if (engine.isEveryoneNewsAcked() || this.areConnectedPlayersNewsAcked(sessionId, engine)) {
+        const newState = await this.gameService.openMarket(sessionId);
+        await this.broadcastOpenMarket(sessionId, newState);
+      }
     }
   }
 
   public async broadcastOpenMarket(sessionId: string, state: any) {
-    this.startTimer(sessionId, 180);
+    this.gameService.startTimer(sessionId, GAME_CONFIG.DEFAULT_SESSION_DURATION);
     this.server.to(sessionId).emit('marketOpened', {
       assetPrices: state.assetPrices,
       round: state.currentRound,
-      timer: 180,
+      timer: GAME_CONFIG.DEFAULT_SESSION_DURATION,
       status: 'ACTIVE',
     });
   }
@@ -272,140 +302,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     return { status: 'ok', roundNumber: newState.currentRound };
   }
 
-  // ─── TIMER MANAGEMENT ─────────────────────────────────────────
-
-  private async startTimer(sessionId: string, seconds: number) {
-    if (this.timerIntervals.has(sessionId)) {
-      clearInterval(this.timerIntervals.get(sessionId)!);
-    }
-
-    const engine = await this.gameService.getOrCreateEngine(sessionId);
-    engine.setTimer(seconds);
-
-    const interval = setInterval(async () => {
-      const remaining = engine.decrementTimer();
-      
-      this.server.to(sessionId).emit('game:timer_tick', { secondsLeft: remaining });
-
-      if (remaining <= 0) {
-        clearInterval(interval);
-        this.timerIntervals.delete(sessionId);
-        
-        // Auto-lock all uncommitted players and advance
-        await this.handleTimerEnd(sessionId);
-      }
-    }, 1000);
-
-    this.timerIntervals.set(sessionId, interval);
-  }
-
-  /**
-   * Auto-lock all uncommitted players using their draft allocation or a default.
-   */
-  private async autoLockUncommitted(sessionId: string) {
-    const engine = await this.gameService.getOrCreateEngine(sessionId);
-    const state = engine.getState();
-    const players = state.players.filter(p => p.role === 'PLAYER');
-    const defaultAllocation = DEFAULT_ALLOCATION;
-
-    for (const player of players) {
-      if (!state.readyPlayers.includes(player.id)) {
-        this.logger.log(`Auto-locking player ${player.id} due to timeout/forceSkip`);
-        
-        const draftKey = `${sessionId}:${player.id}`;
-        let allocation = this.draftAllocations.get(draftKey);
-
-        if (!allocation) {
-          if (state.currentRound === 1) {
-            // Round 1 fallback: 100% CASH
-            allocation = DEFAULT_100_CASH;
-          } else {
-            // Previous round fallback
-            const prevRecord = await prisma.tradeRecord.findFirst({
-              where: { sessionId, playerId: player.id, round: state.currentRound - 1 }
-            });
-            if (prevRecord && prevRecord.portfolio) {
-              try {
-                allocation = JSON.parse(prevRecord.portfolio);
-              } catch (e) {
-                allocation = DEFAULT_100_CASH;
-              }
-            } else {
-              allocation = DEFAULT_100_CASH;
-            }
-          }
-        }
-
-        try {
-          await this.tradeResolution.commitPortfolio(
-            sessionId,
-            player.id,
-            state.currentRound,
-            allocation!,
-            state.assetPrices,
-            true, // isAutoLock
-          );
-        } catch (err) {
-          this.logger.error(`Failed to auto-lock player ${player.id}: ${err}`);
-        }
-
-        engine.setPlayerReady(player.id, true);
-        this.draftAllocations.delete(draftKey);
-      }
-    }
-  }
-
-  private async advanceRound(sessionId: string) {
-    try {
-      const payload = await this.gameService.nextRound(sessionId);
-      if (payload.isGameOver) {
-        const rankings = await this.leaderboardService.getRankings(sessionId);
-        this.server.to(sessionId).emit('sessionEnded', {
-          state: payload.state,
-          rankings,
-          scores: payload.scores,
-        });
-        this.logger.log(`[Gateway] sessionEnded emitted for session ${sessionId}`);
-      } else {
-        this.server.to(sessionId).emit('game:round_start', {
-          assetPrices: payload.assetPrices,
-          round: payload.round,
-          news: payload.news,
-          macro: payload.macro,
-          timer: payload.timer,
-          status: 'NEWS_BREAK',
-        });
-        this.logger.log(`[Gateway] auto game:round_start emitted for session ${sessionId} round ${payload.round}`);
-      }
-    } catch (err) {
-      this.logger.error(`[Gateway] advanceRound failed for session ${sessionId}`, err);
-      this.server.to(sessionId).emit('game:error', { message: 'Failed to advance to next round' });
-    }
-  }
-
-  private async handleTimerEnd(sessionId: string) {
-    // Auto-lock all uncommitted players with DB persist
-    await this.autoLockUncommitted(sessionId);
-
-    const engine = await this.gameService.getOrCreateEngine(sessionId);
-    const state = engine.getState();
-
-    // Emit round end, then advance
-    this.server.to(sessionId).emit('game:round_end', {
-      assetPrices: state.assetPrices,
-      round: state.currentRound,
-    });
-
-    // Auto-advance to next round
-    this.advanceRound(sessionId);
-  }
-
-  private stopTimer(sessionId: string) {
-    if (this.timerIntervals.has(sessionId)) {
-      clearInterval(this.timerIntervals.get(sessionId)!);
-      this.timerIntervals.delete(sessionId);
-    }
-  }
+  // ─── ROUND MANAGEMENT (BROADCAST) ──────────────────────────────
 
   // ─── TRADE COMMIT ─────────────────────────────────────────────
 
@@ -456,22 +353,28 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
       // Emit roster:update on commit (player status changes to LOCKED)
       await this.emitRosterUpdate(data.sessionId);
 
-      if (engine.isEveryoneReady()) {
-        this.stopTimer(data.sessionId);
-
-        // Emit round end; advance happens asynchronously so we can return callback quickly.
-        this.server.to(data.sessionId).emit('game:round_end', {
-          assetPrices: state.assetPrices,
-          round: state.currentRound,
-        });
-
-        this.advanceRound(data.sessionId);
+      if (engine.isEveryoneReady() || this.areConnectedPlayersReady(data.sessionId, engine)) {
+        await this.gameService.handleTimerEnd(data.sessionId);
       }
 
       return { status: 'ok' };
     } catch (err: any) {
       return { status: 'error', message: err.message };
     }
+  }
+
+  private areConnectedPlayersNewsAcked(sessionId: string, engine: any): boolean {
+    const players = engine.getState().players.filter((p: any) => p.role === 'PLAYER');
+    const connectedPlayers = players.filter((p: any) => this.isPlayerConnected(sessionId, p.id));
+    if (connectedPlayers.length === 0) return true;
+    return connectedPlayers.every((p: any) => engine.getState().newsAckPlayers.includes(p.id));
+  }
+
+  private areConnectedPlayersReady(sessionId: string, engine: any): boolean {
+    const players = engine.getState().players.filter((p: any) => p.role === 'PLAYER');
+    const connectedPlayers = players.filter((p: any) => this.isPlayerConnected(sessionId, p.id));
+    if (connectedPlayers.length === 0) return true;
+    return connectedPlayers.every((p: any) => engine.getState().readyPlayers.includes(p.id));
   }
 
   // ─── PLAYER PING ──────────────────────────────────────────────
@@ -492,7 +395,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
   ) {
     const user = client.data.user;
     // Store draft in memory for auto-lock fallback
-    this.draftAllocations.set(`${data.sessionId}:${user.id}`, data.allocation);
+    this.gameService.setDraftAllocation(data.sessionId, user.id, data.allocation);
     return { status: 'ok' };
   }
 
@@ -509,51 +412,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
       return { status: 'error', message: 'Unauthorized' };
     }
 
-    // Stop the timer
-    this.stopTimer(data.sessionId);
-
-    const engine = await this.gameService.getOrCreateEngine(data.sessionId);
-    const state = engine.getState();
-    const playerIds = state.players.filter(p => p.role === 'PLAYER').map(p => p.id);
-    const missingCount = playerIds.length - state.readyPlayers.length;
-
-    // Auto-lock all uncommitted players
-    await this.autoLockUncommitted(data.sessionId);
-
-    if (missingCount > 0) {
-      this.logger.log(`Force skip auto-locked ${missingCount} players, emitting round_end.`);
-      this.server.to(data.sessionId).emit('game:round_end', { 
-        assetPrices: engine.getState().assetPrices,
-        round: engine.getState().currentRound,
-      });
-    }
-
-    // Advance to next round
-    const payload = await this.gameService.nextRound(data.sessionId);
+    this.logger.log(`[Gateway] Facilitator forcing skip for session ${data.sessionId}`);
     
-    if (payload.isGameOver) {
-      const rankings = await this.leaderboardService.getRankings(data.sessionId);
-      this.server.to(data.sessionId).emit('sessionEnded', {
-        state: payload.state,
-        rankings,
-        scores: payload.scores,
-      });
-      return { status: 'ok', gameOver: true };
-    }
+    // Stop the timer and trigger handleTimerEnd (auto-lock + advance)
+    this.gameService.stopTimer(data.sessionId);
+    await this.gameService.handleTimerEnd(data.sessionId);
 
-    this.server.to(data.sessionId).emit('game:round_start', {
-      assetPrices: payload.assetPrices,
-      round: payload.round,
-      news: payload.news,
-      macro: payload.macro,
-      timer: payload.timer,
-      status: 'NEWS_BREAK',
-    });
-
-    const rankings = await this.leaderboardService.getRankings(data.sessionId);
-    this.server.to(data.sessionId).emit('leaderboardUpdate', { rankings });
-
-    return { status: 'ok', roundNumber: payload.round };
+    return { status: 'ok' };
   }
 
   // ─── END SESSION ──────────────────────────────────────────────
@@ -608,12 +473,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     await this.emitRosterUpdate(data.sessionId);
 
     if (engine.isEveryoneReady()) {
-      this.server.to(data.sessionId).emit('game:round_end', {
-        assetPrices: engine.getState().assetPrices,
-        round: engine.getState().currentRound,
-      });
-
-      this.advanceRound(data.sessionId);
+      await this.gameService.handleTimerEnd(data.sessionId);
     }
   }
 
@@ -639,16 +499,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
       totalPlayers: engine.getState().players.filter(p => p.role === 'PLAYER').length,
     });
 
-    if (engine.isEveryoneNewsAcked()) {
+    if (engine.isEveryoneNewsAcked() || this.areConnectedPlayersNewsAcked(data.sessionId, engine)) {
       // Auto-open market once everyone has seen the news
       const newState = await this.gameService.openMarket(data.sessionId);
-      this.startTimer(data.sessionId, 180);
-      this.server.to(data.sessionId).emit('marketOpened', {
-        assetPrices: newState.assetPrices,
-        round: newState.currentRound,
-        timer: 180,
-        status: 'ACTIVE',
-      });
+      await this.broadcastOpenMarket(data.sessionId, newState);
     }
   }
 

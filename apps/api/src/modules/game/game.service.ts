@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { GameEngine } from '@hackanomics/engine';
 import { GameState } from '@hackanomics/engine/dist/types/Game';
 import { MarketService } from './market.service';
@@ -10,6 +10,8 @@ import { ScoringService } from '../macro-engine/scoring.service';
 import { TradeResolutionService } from './trade-resolution.service';
 import { BlackSwanService } from '../macro-engine/black-swan.service';
 import { prisma } from '../../prisma';
+import { GameGateway } from './game.gateway';
+import { GAME_CONFIG } from './game.constants';
 
 // Structured payload that both gateway and REST controllers return
 export interface RoundPayload {
@@ -36,7 +38,54 @@ export class GameService {
   private engines = new Map<string, GameEngine>();
   private enginePromises = new Map<string, Promise<GameEngine>>();
   private nextRoundInflight = new Map<string, Promise<RoundPayload>>();
+  private timerIntervals = new Map<string, NodeJS.Timeout>();
+  private draftAllocations = new Map<string, Record<string, number>>();
   private readonly logger = new Logger(GameService.name);
+
+  public setDraftAllocation(sessionId: string, userId: string, allocation: any) {
+    this.draftAllocations.set(`${sessionId}:${userId}`, allocation);
+  }
+
+  public async autoLockUncommitted(sessionId: string) {
+    const engine = await this.getOrCreateEngine(sessionId);
+    const state = engine.getState();
+    const players = state.players.filter(p => p.role === 'PLAYER');
+
+    for (const player of players) {
+      if (!state.readyPlayers.includes(player.id)) {
+        this.logger.log(`Auto-locking player ${player.id} for session ${sessionId}`);
+        
+        const draftKey = `${sessionId}:${player.id}`;
+        let allocation = this.draftAllocations.get(draftKey);
+
+        if (!allocation) {
+          if (state.currentRound === 1) {
+            allocation = { 'CASH': 100 };
+          } else {
+            const prevRecord = await prisma.tradeRecord.findFirst({
+              where: { sessionId, playerId: player.id, round: state.currentRound - 1 }
+            });
+            allocation = prevRecord && prevRecord.portfolio ? JSON.parse(prevRecord.portfolio) : { 'CASH': 100 };
+          }
+        }
+
+        try {
+          await this.tradeResolution.commitPortfolio(
+            sessionId,
+            player.id,
+            state.currentRound,
+            allocation!,
+            state.assetPrices,
+            true, // isAutoLock
+          );
+          engine.setPlayerReady(player.id, true);
+        } catch (err) {
+          this.logger.error(`Failed to auto-lock player ${player.id}: ${err}`);
+        }
+        this.draftAllocations.delete(draftKey);
+      }
+    }
+  }
 
   constructor(
     private marketService: MarketService,
@@ -47,8 +96,61 @@ export class GameService {
     private scoringService: ScoringService,
     private tradeResolution: TradeResolutionService,
     private blackSwanService: BlackSwanService,
+    @Inject(forwardRef(() => GameGateway))
+    private gameGateway: GameGateway,
   ) {}
 
+  public async handleTimerEnd(sessionId: string) {
+    this.logger.log(`Timer ended for session ${sessionId}, auto-locking players.`);
+    
+    // 1. Auto-lock uncommitted players
+    await this.autoLockUncommitted(sessionId);
+
+    // 2. Force round end on clients
+    const engine = await this.getOrCreateEngine(sessionId);
+    this.gameGateway.server.to(sessionId).emit('game:round_end', { 
+       assetPrices: engine.getState().assetPrices 
+    });
+
+    // 3. Advance round
+    try {
+      const payload = await this.nextRound(sessionId);
+      await this.gameGateway.broadcastNextRound(sessionId, payload);
+    } catch (err) {
+      this.logger.error(`Error auto-advancing session ${sessionId}: ${err}`);
+    }
+  }
+
+  public startTimer(sessionId: string, seconds: number = GAME_CONFIG.DEFAULT_SESSION_DURATION) {
+    if (this.timerIntervals.has(sessionId)) {
+      clearInterval(this.timerIntervals.get(sessionId)!);
+    }
+
+    this.getOrCreateEngine(sessionId).then(engine => {
+      engine.setTimer(seconds);
+
+      const interval = setInterval(async () => {
+        const remaining = engine.decrementTimer();
+        
+        // Emit via Gateway
+        this.gameGateway.server.to(sessionId).emit('game:timer_tick', { secondsLeft: remaining });
+
+        if (remaining <= 0) {
+          this.stopTimer(sessionId);
+          await this.handleTimerEnd(sessionId);
+        }
+      }, 1000);
+
+      this.timerIntervals.set(sessionId, interval);
+    });
+  }
+
+  public stopTimer(sessionId: string) {
+    if (this.timerIntervals.has(sessionId)) {
+      clearInterval(this.timerIntervals.get(sessionId)!);
+      this.timerIntervals.delete(sessionId);
+    }
+  }
   async getOrCreateEngine(sessionId: string): Promise<GameEngine> {
     if (!sessionId) {
       throw new NotFoundException('Session ID is required');
@@ -161,11 +263,16 @@ export class GameService {
     });
 
     const engine = await this.getOrCreateEngine(sessionId);
-    // move to first round when starting (engine may initialize on round 0)
+    // Move to first round when starting (engine initializes on round 0)
     if (engine.getState().currentRound === 0) {
       engine.nextRound();
     }
     engine.updateStatus('ACTIVE');
+    
+    // START: Realistic Market Initialization for Round 1
+    // Instead of static 100s, let's run the first market update right now.
+    const newPrices = await this.marketService.updateMarket(engine, {});
+    // END: Realistic Market Initialization
     
     await prisma.gameSession.update({
       where: { id: sessionId },
@@ -177,9 +284,11 @@ export class GameService {
       create: {
         sessionId,
         roundNumber: 1,
-        priceSnapshot: JSON.stringify(engine.getState().assetPrices),
+        priceSnapshot: JSON.stringify(newPrices),
       },
-      update: {},
+      update: {
+        priceSnapshot: JSON.stringify(newPrices),
+      },
     });
 
     await this.auditService.log(null, 'SESSION_STARTED', `Session:${sessionId}`, {

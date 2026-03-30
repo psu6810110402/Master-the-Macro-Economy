@@ -1,10 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { GameService } from '../game/game.service';
 import { prisma } from '../../prisma';
 
 @Injectable()
 export class LeaderboardService {
-  constructor(private gameService: GameService) {}
+  constructor(
+    @Inject(forwardRef(() => GameService))
+    private gameService: GameService
+  ) {}
 
   async getRankings(sessionId: string) {
     try {

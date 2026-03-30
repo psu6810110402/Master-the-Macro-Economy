@@ -1,8 +1,8 @@
 import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:3001';
-const WS_URL = 'http://localhost:3001';
+const API_URL = 'http://localhost:3002';
+const WS_URL = 'http://localhost:3002';
 const ROUNDS = 5;
 
 // 7 asset classes, must sum to 100
@@ -119,48 +119,56 @@ async function runE2E() {
 
 
     // 4. Game loop
+    let nextRoundPromise: Promise<any[]> | null = null;
     for (let round = 1; round <= ROUNDS; round++) {
       console.log(`\n--- ROUND ${round} ---`);
 
-      // We wait for round_start event if it's NOT the first round (which is triggered by REST)
-      // Actually, let's always wait for it to be sure we are in the correct round state.
-      const roundStartPromise = Promise.all([
-        waitForEvent(sPlayer1, 'game:round_start', 30_000),
-        waitForEvent(sPlayer2, 'game:round_start', 30_000),
-      ]);
-
+      let roundStartData: any;
       if (round === 1) {
+        const roundStartPromise = Promise.all([
+          waitForEvent(sPlayer1, 'game:round_start', 15_000),
+          waitForEvent(sPlayer2, 'game:round_start', 15_000),
+        ]);
+        
         await axios.post(
           `${API_URL}/session/${sessionId}/start`,
           {},
           { headers: { Authorization: `Bearer ${facilitator.token}` } },
         );
         console.log('🔔 Round 1 triggered via REST start');
+        roundStartData = await roundStartPromise;
       } else {
         // The gateway may auto-advance when all players commit.
-        // If we don't see round_start, we can explicitly call next-round as fallback.
         console.log('🔔 Waiting for auto-advance from previous round...');
+        // The promise for round >= 2 was created at the end of the PREVIOUS loop iteration.
+        // It is stored in a global/outer variable. Let's declare it outside the loop.
       }
 
-      const roundStartData = await roundStartPromise;
+      if (round >= 2 && nextRoundPromise) {
+        roundStartData = await nextRoundPromise;
+      }
       console.log(`✅ Round ${round} started on server (Current: ${roundStartData[0].round})`);
 
       if (roundStartData[0].round !== round) {
         console.warn(`⚠️ Round mismatch! Expected ${round}, got ${roundStartData[0].round}`);
       }
 
-      // Wait a short moment for market to open (facilitator auto-open logic or manual)
-      // In this test, we might need to manually open market if it's NEWS_BREAK
+      let marketOpenedPromise: Promise<any> | null = null;
       if (roundStartData[0].status === 'NEWS_BREAK') {
         console.log('🔔 Opening market via REST...');
+        marketOpenedPromise = waitForEvent(sPlayer1, 'marketOpened', 10_000);
         await axios.post(
           `${API_URL}/session/${sessionId}/open-market`,
           {},
           { headers: { Authorization: `Bearer ${facilitator.token}` } },
         );
       }
-
-      await waitForEvent(sPlayer1, 'marketOpened', 10_000);
+      
+      if (marketOpenedPromise) {
+        await marketOpenedPromise;
+      } else {
+        await waitForEvent(sPlayer1, 'marketOpened', 10_000);
+      }
 
       const commitData = { sessionId, allocation: ALLOCATION };
 
@@ -194,18 +202,10 @@ async function runE2E() {
       console.log(`✅ Both players confirmed for round ${round}`);
 
       if (round < ROUNDS) {
-        // Wait for the auto-advanced round message, or trigger fallback
-        try {
-          const nextRound = await waitForEvent(sPlayer1, 'game:round_start', 15_000);
-          console.log('Next round started event received:', nextRound.round);
-        } catch (err) {
-          console.warn('No auto round_start event received, falling back to next-round REST');
-          await axios.post(
-            `${API_URL}/session/${sessionId}/next-round`,
-            {},
-            { headers: { Authorization: `Bearer ${facilitator.token}` } },
-          );
-        }
+        nextRoundPromise = Promise.all([
+          waitForEvent(sPlayer1, 'game:round_start', 15_000),
+          waitForEvent(sPlayer2, 'game:round_start', 15_000),
+        ]);
       } else {
         // Last round should end the session
         await waitForEvent(sPlayer1, 'sessionEnded', 15_000);

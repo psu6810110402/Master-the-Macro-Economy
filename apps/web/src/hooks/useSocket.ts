@@ -13,7 +13,7 @@ export const useSocket = (sessionId?: string) => {
   useEffect(() => {
     if (!sessionId) return;
 
-    const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+    const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
     const socket = io(SOCKET_URL, {
       auth: { token },
       transports: ['websocket'],

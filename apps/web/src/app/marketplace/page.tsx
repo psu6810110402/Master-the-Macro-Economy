@@ -16,6 +16,7 @@ import { Button } from '@hackanomics/ui';
 import { api } from '@/lib/api';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import TradeDialog from '@/components/dashboard/TradeDialog';
+import { useSocket } from '@/hooks/useSocket';
 
 interface Asset {
   id: string;
@@ -38,20 +39,47 @@ export default function MarketplacePage() {
   const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
   const [isTradeOpen, setIsTradeOpen] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number | undefined>(undefined);
+  const [currentRound, setCurrentRound] = useState<number>(1);
+
+  const { isConnected, lastEvent, emit } = useSocket(sessionId || '');
 
   useEffect(() => {
     if (!isInitialized) return;
     setSessionId(contextSessionId);
+  }, [contextSessionId, isInitialized]);
 
+  useEffect(() => {
+    if (!lastEvent) return;
+
+    if (lastEvent.event === 'game:timer_tick') {
+      setSecondsLeft(lastEvent.data.secondsLeft);
+    }
+    
+    if (lastEvent.event === 'marketOpened') {
+      setSecondsLeft(lastEvent.data.timer);
+      if (lastEvent.data.round) setCurrentRound(lastEvent.data.round);
+    }
+
+    if (lastEvent.event === 'game:round_start') {
+      setCurrentRound(lastEvent.data.round);
+      // Optional: fetchAssets again to get fresh round prices
+    }
+  }, [lastEvent]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    
     const fetchAssets = async () => {
       try {
-        const data = await api.get<any[]>('game/assets');
+        const query = contextSessionId ? `?sessionId=${contextSessionId}` : '';
+        const data = await api.get<any[]>(`game/assets${query}`);
         // Standardize the data from the API
         const realAssets = data.map(base => ({
           ...base,
           currentPrice: base.price || 100, // Use price from backend
-          change24h: 0, // Will be updated by socket in later builds
-          sentiment: 'NEUTRAL' as const
+          change24h: base.change || 0, 
+          sentiment: (base.change > 0 ? 'BULLISH' : base.change < 0 ? 'BEARISH' : 'NEUTRAL') as any
         }));
         setAssets(realAssets);
       } catch (err) {
@@ -97,7 +125,11 @@ export default function MarketplacePage() {
   });
 
   return (
-    <DashboardLayout title="Portfolio Marketplace">
+    <DashboardLayout 
+      title="Portfolio Marketplace" 
+      currentRound={currentRound} 
+      secondsLeft={secondsLeft}
+    >
       <div className="space-y-8 pb-12">
         {/* Market Stats Highlight */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

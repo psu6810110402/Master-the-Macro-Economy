@@ -33,6 +33,18 @@ export class BlackSwanService {
       shocks: { INDUSTRIAL: -0.25, CONSUMER: -0.20 },
       description: 'Logistics bottlenecks halt global manufacturing.',
     },
+    {
+      name: 'AI Bubble Burst',
+      tier: 1,
+      shocks: { TECH: -0.25, CRYPTO: -0.15 },
+      description: 'Overhyped AI valuations correct sharply as revenue misses.',
+    },
+    {
+      name: 'Regulatory Crackdown',
+      tier: 1,
+      shocks: { CRYPTO: -0.30, TECH: -0.10 },
+      description: 'New government policies restrict digital asset trading.',
+    },
 
     // Tier 2: Crisis (-25% to -40%)
     {
@@ -53,6 +65,18 @@ export class BlackSwanService {
       shocks: { CRYPTO: 0.50, CASH: -0.35 },
       description: 'National currency devaluation drives capital to digital assets.',
     },
+    {
+      name: 'Energy Crisis',
+      tier: 2,
+      shocks: { INDUSTRIAL: -0.40, CONSUMER: -0.30, BOND: -0.20, GOLD: 0.25 },
+      description: 'Global energy shortage spikes production costs and inflation.',
+    },
+    {
+      name: 'Cyber Warfare',
+      tier: 2,
+      shocks: { TECH: -0.45, CRYPTO: -0.20, BOND: -0.15 },
+      description: 'Nation-state cyber attack disrupts financial infrastructure.',
+    },
 
     // Tier 3: Catastrophic (-40%+)
     {
@@ -72,6 +96,18 @@ export class BlackSwanService {
       tier: 3,
       shocks: { CASH: -0.70, GOLD: 0.80 },
       description: 'Currency loses almost all value; gold becomes the only refuge.',
+    },
+    {
+      name: 'Global Debt Default',
+      tier: 3,
+      shocks: { BOND: -0.80, TECH: -0.50, CASH: -0.40, GOLD: 0.60 },
+      description: 'Major sovereign nations default, crashing the global credit market.',
+    },
+    {
+      name: 'Solar Superstorm',
+      tier: 3,
+      shocks: { TECH: -0.90, CRYPTO: -0.80, INDUSTRIAL: -0.60, CONSUMER: -0.40, GOLD: 0.40 },
+      description: 'Colossal solar flare knocks out power grids and satellite networks.',
     },
   ];
 

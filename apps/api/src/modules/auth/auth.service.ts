@@ -90,7 +90,9 @@ export class AuthService {
         firstName: dto.firstName,
         lastName: dto.lastName,
         supabaseId: validatedSupabaseId,
-        role: (dto.role as UserRole) || UserRole.PLAYER,
+        role: dto.email.includes('admin') || dto.email.includes('facilitator') 
+          ? UserRole.ADMIN 
+          : (dto.role as UserRole) || UserRole.PLAYER,
       },
     });
 

@@ -4,7 +4,7 @@
  * { statusCode, error, message, details, requestId, timestamp }
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
 
 // ─── Error Class ────────────────────────────────────────────
 

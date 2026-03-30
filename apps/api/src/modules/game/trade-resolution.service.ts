@@ -23,16 +23,25 @@ export class TradeResolutionService {
       throw new BadRequestException(`Invalid allocation: Total must be 100%, got ${totalAlloc}%`);
     }
 
-    // 2. Get the player's current portfolio to find total value
+    // 2. Get the player's current holdings to calculate LIVE total value
     const playerPortfolio = await prisma.portfolio.findFirst({
       where: { sessionPlayer: { sessionId, userId: playerId } },
+      include: {
+        holdings: { include: { asset: true } }
+      }
     });
 
     if (!playerPortfolio) {
       throw new BadRequestException('Portfolio not found for player in this session');
     }
 
-    const totalValue = Number(playerPortfolio.totalValue);
+    // Use current asset prices provided to calculate a live portfolio value
+    let holdingsValue = 0;
+    for (const h of playerPortfolio.holdings) {
+      const price = currentAssetPrices[h.asset.symbol] || Number(h.avgCost) || 100;
+      holdingsValue += Number(h.quantity) * price;
+    }
+    const liveTotalValue = Number(playerPortfolio.cashBalance) + holdingsValue;
 
     const maxTries = 5;
 
@@ -46,7 +55,7 @@ export class TradeResolutionService {
               playerId,
               round,
               portfolio: JSON.stringify(allocation),
-              totalValue,
+              totalValue: liveTotalValue,
               isAutoLock,
             },
           });
@@ -59,25 +68,26 @@ export class TradeResolutionService {
 
           const allAssets = await tx.asset.findMany({ where: { isActive: true } });
 
-          let remainingCash = totalValue;
+          let remainingCash = liveTotalValue;
           const holdingInserts: any[] = [];
 
           for (const [category, percent] of Object.entries(allocation)) {
             if (percent <= 0 || category === 'CASH') continue;
 
             const categoryAssets = allAssets.filter((a: any) => {
-              if (category === 'TECH') return a.type === 'STOCK' && (a.symbol.startsWith('STK') || ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'AMD'].includes(a.symbol));
-              if (category === 'INDUSTRIAL') return a.type === 'STOCK' && ['CAT', 'GE', 'HON', 'BA', 'XOM', 'CVX'].includes(a.symbol);
-              if (category === 'BOND') return a.type === 'BOND';
-              if (category === 'GOLD') return a.type === 'COMMODITY';
-              if (category === 'CRYPTO') return a.type === 'CRYPTO';
-              if (category === 'REAL_ESTATE') return a.type === 'REAL_ESTATE' || a.symbol === 'VNQ';
+              const sym = a.symbol.toUpperCase();
+              if (category === 'TECH') return a.type === 'STOCK' && (sym.startsWith('STK') || ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'AMD', 'ORCL', 'CSCO', 'IBM', 'ADBE', 'NFLX', 'CRM', 'SNOW', 'PLTR'].includes(sym));
+              if (category === 'INDUSTRIAL') return a.type === 'STOCK' && ['CAT', 'GE', 'HON', 'BA', 'XOM', 'CVX', 'JPM', 'BAC'].includes(sym);
+              if (category === 'BOND') return a.type === 'BOND' || sym === 'US10Y';
+              if (category === 'GOLD') return a.type === 'COMMODITY' || sym === 'GLD' || sym === 'GOLD';
+              if (category === 'CRYPTO') return a.type === 'CRYPTO' || sym === 'BTC' || sym === 'ETH' || sym === 'SOL';
+              if (category === 'REAL_ESTATE') return a.type === 'REAL_ESTATE' || sym === 'VNQ';
               return false;
             });
 
             if (categoryAssets.length === 0) continue;
 
-            const targetCategoryValue = (percent / 100) * totalValue;
+            const targetCategoryValue = (percent / 100) * liveTotalValue;
             const valuePerAsset = targetCategoryValue / categoryAssets.length;
 
             for (const asset of categoryAssets) {
@@ -99,11 +109,12 @@ export class TradeResolutionService {
             await tx.holding.createMany({ data: holdingInserts });
           }
 
-          // Update portfolio cash balance (should be close to 0 if 100% allocated)
+          // Update portfolio cash balance and the cached totalValue (to reflect current reality at end of commit)
           await tx.portfolio.update({
             where: { id: playerPortfolio.id },
             data: {
               cashBalance: Math.max(0, remainingCash),
+              totalValue: liveTotalValue,
               updatedAt: new Date(),
             },
           });

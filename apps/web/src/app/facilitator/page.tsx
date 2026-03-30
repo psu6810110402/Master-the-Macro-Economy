@@ -96,6 +96,10 @@ export default function FacilitatorDashboard() {
 
     if (lastEvent.event === 'initialState') {
       setPlayers(lastEvent.data.players || []);
+      if (lastEvent.data.timer > 0) {
+        setTimer(lastEvent.data.timer);
+        setTotalTimerSeconds(lastEvent.data.timer);
+      }
     }
 
     if (lastEvent.event === 'roster:update') {

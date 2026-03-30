@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { prisma } from '../../prisma';
 
@@ -6,10 +6,28 @@ import { prisma } from '../../prisma';
 export class GameController {
   @Get('assets')
   @UseGuards(JwtAuthGuard)
-  async getAssets() {
-    return prisma.asset.findMany({
-      where: { isActive: true },
-    });
+  async getAssets(@Query('sessionId') sessionIdParam?: string) {
+    const assets = await prisma.asset.findMany({ where: { isActive: true } });
+    
+    // If we have a session context, try to find the absolute latest prices for this simulation
+    if (sessionIdParam) {
+      const latestPrices = await prisma.assetPrice.findMany({
+        where: { sessionId: sessionIdParam },
+        orderBy: { recordedAt: 'desc' },
+        distinct: ['assetId'],
+      });
+
+      return assets.map(asset => {
+        const priceRecord = latestPrices.find(p => p.assetId === asset.id);
+        return {
+          ...asset,
+          price: priceRecord ? Number(priceRecord.price) : asset.basePrice,
+          change: priceRecord ? Number(priceRecord.delta) : 0,
+        };
+      });
+    }
+
+    return assets.map(a => ({ ...a, price: a.basePrice, change: 0 }));
   }
 
   @Get('macro/:sessionId')

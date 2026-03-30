@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useSocket } from '@/hooks/useSocket';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -11,12 +11,13 @@ import RoundResultModal from '@/components/game/RoundResultModal';
 import GameOverModal from '@/components/game/GameOverModal';
 import { Button } from '@hackanomics/ui';
 import { api } from '@/lib/api';
+import { useSession } from '@/context/SessionContext';
 
 interface Asset {
   id: string;
   symbol: string;
   name: string;
-  type: 'STOCK' | 'BOND' | 'COMMODITY' | 'CRYPTO' | 'CASH';
+  type: 'STOCK' | 'BOND' | 'COMMODITY' | 'CRYPTO' | 'CASH' | 'REAL_ESTATE';
   price: number;
 }
 
@@ -32,10 +33,8 @@ interface Portfolio {
   }>;
 }
 
-import { useSession } from '@/context/SessionContext';
-
 export default function DashboardPage() {
-  const { sessionId: contextSessionId, role: contextRole, logout, isInitialized } = useSession();
+  const { sessionId: contextSessionId, role: contextRole, isInitialized } = useSession();
   const [sessionId, setSessionId] = useState<string>('');
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -43,6 +42,23 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentRound, setCurrentRound] = useState<number>(0);
   const [gameStatus, setGameStatus] = useState<string>('WAITING');
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const [previousPrices, setPreviousPrices] = useState<Record<string, number>>({});
+  const [isLocked, setIsLocked] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState<number | undefined>(undefined);
+  const [isNewsOpen, setIsNewsOpen] = useState(false);
+  const [news, setNews] = useState<any>(null);
+  const [isGameOverOpen, setIsGameOverOpen] = useState(false);
+  const [rankings, setRankings] = useState<any[]>([]);
+  
+  const [macro, setMacro] = useState<any>({
+    interestRate: 2.5,
+    inflation: 3.0,
+    gdpGrowth: 2.8,
+    volatility: 'NORMAL'
+  });
+
+  const { isConnected, lastEvent, emit } = useSocket(sessionId);
 
   useEffect(() => {
     if (contextSessionId) setSessionId(contextSessionId);
@@ -55,7 +71,7 @@ export default function DashboardPage() {
         setCurrentUserId(me.userId);
 
         const [assetsData, portfolioData] = await Promise.all([
-          api.get<Asset[]>('game/assets'),
+          api.get<Asset[]>(sessionId ? `game/assets?sessionId=${sessionId}` : 'game/assets'),
           sessionId ? api.get<Portfolio>(`portfolio/${sessionId}`) : Promise.resolve(null)
         ]);
         setAssets(assetsData);
@@ -67,34 +83,29 @@ export default function DashboardPage() {
       }
     };
 
-    if (sessionId) {
+    if (sessionId && isInitialized) {
       fetchData();
-    } else {
+    } else if (isInitialized && !sessionId) {
       setIsLoading(false);
     }
-  }, [sessionId]);
-
-  const { isConnected, lastEvent, emit } = useSocket(sessionId);
-  const [prices, setPrices] = useState<Record<string, number>>({});
-  const [previousPrices, setPreviousPrices] = useState<Record<string, number>>({});
-  const [isLocked, setIsLocked] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState<number | undefined>(undefined);
-  const [isNewsOpen, setIsNewsOpen] = useState(false);
-  const [news, setNews] = useState<any>(null);
-  
-  const [isGameOverOpen, setIsGameOverOpen] = useState(false);
-  const [rankings, setRankings] = useState<any[]>([]);
-  const sessionRole = contextRole;
+  }, [sessionId, isInitialized]);
 
   useEffect(() => {
     if (!lastEvent) return;
 
     if (lastEvent.event === 'initialState') {
-      setPrices(lastEvent.data.assetPrices || {});
-      setPreviousPrices(lastEvent.data.assetPrices || {});
+      const initialPrices = lastEvent.data.assetPrices || {};
+      const initialPrevPrices = lastEvent.data.previousPrices || initialPrices;
+      setPrices(initialPrices);
+      setPreviousPrices(initialPrevPrices);
       setCurrentRound(lastEvent.data.round || lastEvent.data.currentRound || 0);
       setGameStatus(lastEvent.data.status || 'WAITING');
+      setSecondsLeft(lastEvent.data.timer);
       
+      if (lastEvent.data.macro) {
+        setMacro(lastEvent.data.macro);
+      }
+
       if (lastEvent.data.status === 'COMPLETED') {
         setRankings(lastEvent.data.rankings || []);
         setIsGameOverOpen(true);
@@ -113,6 +124,10 @@ export default function DashboardPage() {
       setIsLocked(false);
       setGameStatus('ACTIVE');
       
+      if (lastEvent.data.macro) {
+        setMacro(lastEvent.data.macro);
+      }
+      
       if (lastEvent.data.news) {
         setNews(lastEvent.data.news);
         setIsNewsOpen(true);
@@ -121,6 +136,12 @@ export default function DashboardPage() {
       if (sessionId) {
         api.get<Portfolio>(`portfolio/${sessionId}`).then(setPortfolio);
       }
+    }
+
+    if (lastEvent.event === 'marketOpened') {
+      setPrices(lastEvent.data.assetPrices || prices);
+      setSecondsLeft(lastEvent.data.timer);
+      setGameStatus('ACTIVE');
     }
 
     if (lastEvent.event === 'game:timer_tick') {
@@ -138,11 +159,13 @@ export default function DashboardPage() {
       setIsLocked(true);
       setPrices(lastEvent.data.assetPrices);
       setCurrentRound(lastEvent.data.round);
+      setSecondsLeft(0);
     }
 
     if (lastEvent.event === 'sessionEnded') {
       setRankings(lastEvent.data.rankings || []);
       setIsGameOverOpen(true);
+      setGameStatus('COMPLETED');
     }
   }, [lastEvent, sessionId, prices]);
 
@@ -183,7 +206,6 @@ export default function DashboardPage() {
       <DashboardLayout title="Market" currentRound={currentRound} totalValue={totalValue} secondsLeft={secondsLeft}>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-[calc(100vh-12rem)]">
           <div className="lg:col-span-8 flex flex-col gap-8 overflow-hidden">
-            {/* Portfolio Overview */}
             <motion.section
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -206,7 +228,6 @@ export default function DashboardPage() {
               </div>
             </motion.section>
 
-            {/* Market Prices Grid */}
             <section className="flex-1 bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] p-6 overflow-hidden flex flex-col">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-[10px] uppercase font-bold tracking-[0.3em] text-[oklch(var(--text-muted))]">Global Market Feed</h2>
@@ -249,7 +270,6 @@ export default function DashboardPage() {
             </section>
           </div>
 
-          {/* Trade Terminal Sidebar */}
           <aside className="lg:col-span-4 h-full relative">
             <TradePanel 
               round={currentRound}
@@ -269,11 +289,11 @@ export default function DashboardPage() {
         description={news?.body || "Analyzing economic deltas..."}
         round={currentRound}
         macro={{
-          interestRate: news?.macroDeltas?.interestRate || 0,
-          inflation: news?.macroDeltas?.inflation || 0,
-          gdpGrowth: news?.macroDeltas?.gdpGrowth || 0,
-          blackSwanActive: !!news?.blackSwanTier,
-          blackSwanEvent: news?.headline
+          interestRate: macro.interestRate,
+          inflation: macro.inflation,
+          gdpGrowth: macro.gdpGrowth,
+          blackSwanActive: macro.blackSwanActive,
+          blackSwanEvent: macro.blackSwanEvent
         }}
         onDismiss={() => {
           setIsNewsOpen(false);
