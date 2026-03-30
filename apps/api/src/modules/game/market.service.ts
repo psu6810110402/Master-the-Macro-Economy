@@ -99,6 +99,8 @@ export class MarketService {
 
       newPrices[asset.symbol] = Math.max(0.01, finalizedPrice);
 
+      this.logger.debug(`[Market] ${asset.symbol}: ${currentPrice.toFixed(2)} -> ${newPrices[asset.symbol].toFixed(2)} (${finalizedDelta.toFixed(2)}%)`);
+
       // 5. Log the price change to DB
       await prisma.assetPrice.create({
         data: {

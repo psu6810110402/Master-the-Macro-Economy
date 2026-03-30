@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UserRole } from '@hackanomics/database';
 import * as bcrypt from 'bcrypt';
@@ -10,6 +10,7 @@ import { prisma } from '../../prisma';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   constructor(
     public readonly jwtService: JwtService,
     private readonly configService: ConfigService,
@@ -93,6 +94,7 @@ export class AuthService {
       },
     });
 
+    this.logger.log(`[Auth] User registered: ${user.email} with role ${user.role}`);
     return this.generateToken(user);
   }
 
@@ -107,9 +109,11 @@ export class AuthService {
 
     const isMatch = await bcrypt.compare(dto.password, user.passwordHash);
     if (!isMatch) {
+      this.logger.warn(`[Auth] Failed login attempt for ${dto.email}: Invalid password`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    this.logger.log(`[Auth] User logged in: ${user.email} (${user.role})`);
     return this.generateToken(user);
   }
 }

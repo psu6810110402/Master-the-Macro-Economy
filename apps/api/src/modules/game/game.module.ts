@@ -25,6 +25,6 @@ import { AuditModule } from '../audit/audit.module';
   ],
   controllers: [GameController],
   providers: [GameGateway, GameService, MarketService, TradeResolutionService],
-  exports: [GameService, MarketService, TradeResolutionService],
+  exports: [GameGateway, GameService, MarketService, TradeResolutionService],
 })
 export class GameModule {}

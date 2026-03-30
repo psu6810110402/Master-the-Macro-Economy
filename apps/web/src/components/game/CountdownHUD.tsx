@@ -39,6 +39,7 @@ export default function CountdownHUD({ seconds, totalSeconds, isActive, classNam
       {/* Danger vignette — covers parent container edges */}
       {isDanger && isActive && (
         <motion.div
+          initial={{ opacity: 0 }}
           animate={{ opacity: [0, 0.15, 0] }}
           transition={{ duration: 0.8, repeat: Infinity }}
           className="fixed inset-0 pointer-events-none z-[90]"
@@ -75,6 +76,7 @@ export default function CountdownHUD({ seconds, totalSeconds, isActive, classNam
             strokeLinecap="butt"
             strokeDasharray={circumference}
             strokeDashoffset={dashOffset}
+            initial={{ opacity: 1 }}
             animate={{
               strokeDashoffset: dashOffset,
               opacity: isDanger ? [1, 0.5, 1] : 1,
@@ -96,8 +98,8 @@ export default function CountdownHUD({ seconds, totalSeconds, isActive, classNam
           >
             {timeStr}
           </span>
-          <span className="text-[8px] font-black uppercase tracking-[0.3em] text-[oklch(var(--text-muted))] mt-1">
-            {!isActive ? 'STANDBY' : isDanger ? 'CLOSING' : 'REMAINING'}
+          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[oklch(var(--text-muted))] mt-1">
+            {!isActive ? 'Standby' : isDanger ? 'Closing' : 'Remaining'}
           </span>
         </div>
       </div>

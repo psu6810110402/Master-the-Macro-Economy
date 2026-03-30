@@ -157,40 +157,48 @@ export class PortfolioService {
     const scenarioId = session.scenarioId || 'TECH_CRISIS';
     const scenario = SCENARIOS.find(s => s.id === scenarioId) || SCENARIOS[0];
 
-    // Format trades for the prompt
-    let tradeHistory = portfolio.trades.map((t: any) => 
-      `Round ${t.round.roundNumber}: ${t.action} ${t.quantity} ${t.asset.symbol} @ $${t.price} (Total: $${t.total})`
-    ).join('\n');
-
-    if (!tradeHistory) tradeHistory = "No trades executed throughout the entire simulation.";
+    // ━━━━ PHASE 4: TOKEN OPTIMIZATION ━━━━
+    // Pre-compute basic metrics to save tokens instead of sending raw trades string
+    const tradeCount = portfolio.trades.length;
+    const tradedAssets = new Set(portfolio.trades.map((t: any) => t.asset.symbol));
+    const finalReturn = portfolio.returnPct || 0;
+    
+    const metrics = {
+      totalTradesExecuted: tradeCount,
+      uniqueAssetsTraded: Array.from(tradedAssets).join(', ') || 'None',
+      finalReturn: `${finalReturn >= 0 ? '+' : ''}${finalReturn.toFixed(2)}%`,
+      scenarioName: scenario.name,
+      diversityGrade: scoreRow?.gradeDiversity || 'N/A',
+      riskGrade: scoreRow?.gradeRisk || 'N/A',
+      survivalGrade: scoreRow?.gradeSurvival || 'N/A'
+    };
 
     const prompt = `
-    You are an elite, harsh, but highly educational and realistic Financial Advisor analyzing a field operative's (student's) performance in an investment simulation.
-    The operative just completed the scenario: "${scenario.name}" - ${scenario.description}
-    Here is their complete trade history across the 5 rounds:
-    ${tradeHistory}
+    You are an elite, harsh, but highly educational and realistic Financial Advisor analyzing a field operative's performance in an investment simulation.
+    Scenario Completed: "${metrics.scenarioName}"
     
-    Final Outcome:
+    Operative's Performance Metrics:
     - Target Starting Capital: $100000
     - Final Cash Balance: $${portfolio.cashBalance}
-    - Final Total Portfolio Value (including assets): $${portfolio.totalValue || portfolio.cashBalance}
-    - Overall Return: ${portfolio.returnPct || 0}%
+    - Final Total Portfolio Value: $${portfolio.totalValue || portfolio.cashBalance}
+    - Overall Return: ${metrics.finalReturn}
+    - Trading Activity: Executed ${metrics.totalTradesExecuted} trades across these assets: [${metrics.uniqueAssetsTraded}]
     
-    The operative received the following grades (A-F):
+    The operative received the following evaluation grades (A-F) from the simulation engine:
     - Return: ${scoreRow?.gradeReturn || 'N/A'}
-    - Diversity: ${scoreRow?.gradeDiversity || 'N/A'}
-    - Risk Management: ${scoreRow?.gradeRisk || 'N/A'}
-    - Survival (Black Swan): ${scoreRow?.gradeSurvival || 'N/A'}
+    - Diversity: ${metrics.diversityGrade}
+    - Risk Management: ${metrics.riskGrade}
+    - Survival (Black Swan): ${metrics.survivalGrade}
 
     Provide a highly structured JSON response ONLY. Do not include markdown code block syntax like \`\`\`json. Just the raw JSON object.
     Your JSON must have exactly this structure:
     {
-      "debrief": "A concise 2-paragraph overall mission debrief pointing out their best move and worst mistake.",
+      "debrief": "A concise 2-paragraph overall mission debrief pointing out their best move and worst mistake based on the grades.",
       "grades": {
-        "Return": "Detailed reason why they got this exact grade for Return, and what they should have done differently.",
+        "Return": "Detailed reason why they got this exact grade for Return.",
         "Diversity": "Reasoning for their Diversity grade, analyzing their asset allocation spread.",
         "Risk": "Reasoning for their Risk Management grade, analyzing if they took too much risk or played it too safe.",
-        "Survival": "Reasoning for their Survival grade (how exactly they navigated market shocks based on their trades)."
+        "Survival": "Reasoning for their Survival grade (how exactly they navigated market shocks)."
       }
     }
     `;

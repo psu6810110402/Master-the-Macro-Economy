@@ -46,6 +46,7 @@ export default function BreakingNews({ isOpen, headline, description, round, mac
           >
             {/* Flashing Banner */}
             <motion.div 
+              initial={{ opacity: 1 }}
               animate={{ opacity: [1, 0.4, 1] }}
               transition={{ duration: 1.5, repeat: Infinity }}
               className="flex items-center justify-center gap-3 py-3 bg-[oklch(var(--status-error))] text-white text-[10px] font-black uppercase tracking-[0.5em] mb-0"
@@ -168,11 +169,11 @@ function MacroCard({ label, value, icon, color }: { label: string; value: string
 
   return (
     <div className={`p-4 border bg-[oklch(var(--bg-main))] ${colorMap[color]}`}>
-      <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))] mb-2">
+      <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-widest text-[oklch(var(--text-muted))] mb-2">
         <span>{label}</span>
         {icon}
       </div>
-      <div className={`text-xl font-black font-mono tracking-tight ${colorMap[color].split(' ')[0]}`}>
+      <div className={`text-xl font-black tabular-nums tracking-tight ${colorMap[color].split(' ')[0]}`}>
         {value}
       </div>
     </div>

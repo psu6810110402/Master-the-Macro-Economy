@@ -34,6 +34,15 @@ export class AdminService {
     };
   }
 
+  async updateUserRole(userId: string, role: 'PLAYER' | 'FACILITATOR' | 'ADMIN') {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { role: role as any },
+      select: { id: true, email: true, displayName: true, role: true },
+    });
+    return user;
+  }
+
   async testSupabaseConnection() {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

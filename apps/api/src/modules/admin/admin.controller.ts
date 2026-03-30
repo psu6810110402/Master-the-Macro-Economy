@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Param, Body, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -13,6 +13,14 @@ export class AdminController {
   @Get('users')
   async getUsers() {
     return this.adminService.getSystemUsers();
+  }
+
+  @Patch('users/:id/role')
+  async updateUserRole(
+    @Param('id') id: string,
+    @Body('role') role: 'PLAYER' | 'FACILITATOR' | 'ADMIN',
+  ) {
+    return this.adminService.updateUserRole(id, role);
   }
 
   @Get('test-supabase')

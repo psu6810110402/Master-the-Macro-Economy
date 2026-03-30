@@ -16,6 +16,7 @@ import { LeaderboardService } from '../leaderboard/leaderboard.service';
 import { BlackSwanService } from '../macro-engine/black-swan.service';
 import { OnModuleInit } from '@nestjs/common';
 import { prisma } from '../../prisma';
+import { DEFAULT_ALLOCATION, DEFAULT_100_CASH } from '@hackanomics/engine';
 
 @WebSocketGateway({
   cors: {
@@ -143,6 +144,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
       displayName: user.displayName,
     });
 
+    this.logger.log(`[Gateway] User ${user.id} (${user.role}) joining session room ${data.sessionId}`);
+
     engine.addPlayer({
       id: user.id,
       displayName: user.displayName || user.firstName || 'Guest',
@@ -170,6 +173,47 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     };
   }
 
+  private async emitRoundStart(sessionId: string, payload: RoundPayload) {
+    this.server.to(sessionId).emit('game:round_start', {
+      assetPrices: payload.assetPrices,
+      round: payload.round,
+      news: payload.news,
+      macro: payload.macro,
+      timer: payload.timer,
+      status: 'NEWS_BREAK',
+    });
+
+    const rankings = await this.leaderboardService.getRankings(sessionId);
+    this.server.to(sessionId).emit('leaderboardUpdate', { rankings });
+  }
+
+  public async broadcastStartSession(sessionId: string, payload: RoundPayload) {
+    await this.emitRoundStart(sessionId, payload);
+  }
+
+  public async broadcastNextRound(sessionId: string, payload: RoundPayload) {
+    if (payload.isGameOver) {
+      const rankings = await this.leaderboardService.getRankings(sessionId);
+      this.server.to(sessionId).emit('sessionEnded', {
+        state: payload.state,
+        rankings,
+        scores: payload.scores,
+      });
+    } else {
+      await this.emitRoundStart(sessionId, payload);
+    }
+  }
+
+  public async broadcastOpenMarket(sessionId: string, state: any) {
+    this.startTimer(sessionId, 180);
+    this.server.to(sessionId).emit('marketOpened', {
+      assetPrices: state.assetPrices,
+      round: state.currentRound,
+      timer: 180,
+      status: 'ACTIVE',
+    });
+  }
+
   // ─── START SESSION ────────────────────────────────────────────
 
   @UseGuards(WsJwtGuard)
@@ -183,17 +227,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
       return { status: 'error', message: 'Unauthorized' };
     }
 
+    this.logger.log(`[Gateway] Facilitator ${user.id} starting session ${data.sessionId}`);
     const payload = await this.gameService.startSession(data.sessionId);
-    
-    // Broadcast structured payload to all session members
-    this.server.to(data.sessionId).emit('game:round_start', {
-      assetPrices: payload.assetPrices,
-      round: payload.round,
-      news: payload.news,
-      macro: payload.macro,
-      timer: payload.timer,
-      status: 'NEWS_BREAK',
-    });
+    await this.broadcastStartSession(data.sessionId, payload);
 
     return { status: 'ok', round: payload.round };
   }
@@ -212,33 +248,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     }
 
     const payload = await this.gameService.nextRound(data.sessionId);
-    
-    if (payload.isGameOver) {
-      // Game is over — emit sessionEnded with scores + rankings
-      const rankings = await this.leaderboardService.getRankings(data.sessionId);
-      this.server.to(data.sessionId).emit('sessionEnded', {
-        state: payload.state,
-        rankings,
-        scores: payload.scores,
-      });
-      return { status: 'ok', gameOver: true };
-    }
+    await this.broadcastNextRound(data.sessionId, payload);
 
-    // Broadcast new round with enriched payload
-    this.server.to(data.sessionId).emit('game:round_start', {
-      assetPrices: payload.assetPrices,
-      round: payload.round,
-      news: payload.news,
-      macro: payload.macro,
-      timer: payload.timer,
-      status: 'NEWS_BREAK',
-    });
-
-    // Also broadcast leaderboard
-    const rankings = await this.leaderboardService.getRankings(data.sessionId);
-    this.server.to(data.sessionId).emit('leaderboardUpdate', { rankings });
-
-    return { status: 'ok', roundNumber: payload.round };
+    return { status: 'ok', roundNumber: payload.round, gameOver: payload.isGameOver || false };
   }
 
   // ─── OPEN MARKET ──────────────────────────────────────────────
@@ -254,18 +266,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
       return { status: 'error', message: 'Unauthorized' };
     }
 
+    this.logger.log(`[Gateway] Facilitator ${user.id} opening market in session ${data.sessionId}`);
     const newState = await this.gameService.openMarket(data.sessionId);
-    
-    // Start real-time timer sync
-    this.startTimer(data.sessionId, 180);
-
-    this.server.to(data.sessionId).emit('marketOpened', {
-      assetPrices: newState.assetPrices,
-      round: newState.currentRound,
-      timer: 180,
-      status: 'ACTIVE',
-    });
-
+    await this.broadcastOpenMarket(data.sessionId, newState);
     return { status: 'ok', roundNumber: newState.currentRound };
   }
 
@@ -303,9 +306,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     const engine = await this.gameService.getOrCreateEngine(sessionId);
     const state = engine.getState();
     const players = state.players.filter(p => p.role === 'PLAYER');
-    const defaultAllocation: Record<string, number> = {
-      TECH: 15, INDUSTRIAL: 15, CONSUMER: 15, BOND: 15, GOLD: 15, CRYPTO: 15, CASH: 10,
-    };
+    const defaultAllocation = DEFAULT_ALLOCATION;
 
     for (const player of players) {
       if (!state.readyPlayers.includes(player.id)) {
@@ -317,7 +318,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
         if (!allocation) {
           if (state.currentRound === 1) {
             // Round 1 fallback: 100% CASH
-            allocation = { TECH: 0, INDUSTRIAL: 0, CONSUMER: 0, BOND: 0, GOLD: 0, CRYPTO: 0, CASH: 100 };
+            allocation = DEFAULT_100_CASH;
           } else {
             // Previous round fallback
             const prevRecord = await prisma.tradeRecord.findFirst({
@@ -327,10 +328,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
               try {
                 allocation = JSON.parse(prevRecord.portfolio);
               } catch (e) {
-                allocation = { TECH: 0, INDUSTRIAL: 0, CONSUMER: 0, BOND: 0, GOLD: 0, CRYPTO: 0, CASH: 100 };
+                allocation = DEFAULT_100_CASH;
               }
             } else {
-              allocation = { TECH: 0, INDUSTRIAL: 0, CONSUMER: 0, BOND: 0, GOLD: 0, CRYPTO: 0, CASH: 100 };
+              allocation = DEFAULT_100_CASH;
             }
           }
         }
@@ -354,6 +355,34 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     }
   }
 
+  private async advanceRound(sessionId: string) {
+    try {
+      const payload = await this.gameService.nextRound(sessionId);
+      if (payload.isGameOver) {
+        const rankings = await this.leaderboardService.getRankings(sessionId);
+        this.server.to(sessionId).emit('sessionEnded', {
+          state: payload.state,
+          rankings,
+          scores: payload.scores,
+        });
+        this.logger.log(`[Gateway] sessionEnded emitted for session ${sessionId}`);
+      } else {
+        this.server.to(sessionId).emit('game:round_start', {
+          assetPrices: payload.assetPrices,
+          round: payload.round,
+          news: payload.news,
+          macro: payload.macro,
+          timer: payload.timer,
+          status: 'NEWS_BREAK',
+        });
+        this.logger.log(`[Gateway] auto game:round_start emitted for session ${sessionId} round ${payload.round}`);
+      }
+    } catch (err) {
+      this.logger.error(`[Gateway] advanceRound failed for session ${sessionId}`, err);
+      this.server.to(sessionId).emit('game:error', { message: 'Failed to advance to next round' });
+    }
+  }
+
   private async handleTimerEnd(sessionId: string) {
     // Auto-lock all uncommitted players with DB persist
     await this.autoLockUncommitted(sessionId);
@@ -362,31 +391,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     const state = engine.getState();
 
     // Emit round end, then advance
-    this.server.to(sessionId).emit('game:round_end', { 
+    this.server.to(sessionId).emit('game:round_end', {
       assetPrices: state.assetPrices,
       round: state.currentRound,
     });
 
     // Auto-advance to next round
-    const payload = await this.gameService.nextRound(sessionId);
-    
-    if (payload.isGameOver) {
-      const rankings = await this.leaderboardService.getRankings(sessionId);
-      this.server.to(sessionId).emit('sessionEnded', {
-        state: payload.state,
-        rankings,
-        scores: payload.scores,
-      });
-    } else {
-      this.server.to(sessionId).emit('game:round_start', {
-        assetPrices: payload.assetPrices,
-        round: payload.round,
-        news: payload.news,
-        macro: payload.macro,
-        timer: payload.timer,
-        status: 'NEWS_BREAK',
-      });
-    }
+    this.advanceRound(sessionId);
   }
 
   private stopTimer(sessionId: string) {
@@ -405,6 +416,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     @MessageBody() data: { sessionId: string; allocation: any },
   ) {
     const user = client.data.user;
+    this.logger.log(`[Gateway] trade:commit received for session ${data.sessionId} from ${user.id} (${user.role})`);
+
     if (!data?.sessionId) {
       return { status: 'error', message: 'Session ID is required' };
     }
@@ -438,38 +451,21 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
         round: state.currentRound 
       });
 
+      this.logger.log(`[Gateway] Trade committed for user ${user.id} in session ${data.sessionId}. TotalValue: ${record.totalValue}`);
+
       // Emit roster:update on commit (player status changes to LOCKED)
       await this.emitRosterUpdate(data.sessionId);
 
       if (engine.isEveryoneReady()) {
         this.stopTimer(data.sessionId);
 
-        // Emit round end
+        // Emit round end; advance happens asynchronously so we can return callback quickly.
         this.server.to(data.sessionId).emit('game:round_end', {
           assetPrices: state.assetPrices,
           round: state.currentRound,
         });
 
-        // Auto-advance to next round
-        const payload = await this.gameService.nextRound(data.sessionId);
-        
-        if (payload.isGameOver) {
-          const rankings = await this.leaderboardService.getRankings(data.sessionId);
-          this.server.to(data.sessionId).emit('sessionEnded', {
-            state: payload.state,
-            rankings,
-            scores: payload.scores,
-          });
-        } else {
-          this.server.to(data.sessionId).emit('game:round_start', {
-            assetPrices: payload.assetPrices,
-            round: payload.round,
-            news: payload.news,
-            macro: payload.macro,
-            timer: payload.timer,
-            status: 'NEWS_BREAK',
-          });
-        }
+        this.advanceRound(data.sessionId);
       }
 
       return { status: 'ok' };
@@ -573,6 +569,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
       return { status: 'error', message: 'Unauthorized' };
     }
 
+    this.logger.log(`[Gateway] Facilitator ${user.id} ending session ${data.sessionId} manually`);
     const payload = await this.gameService.endSession(data.sessionId);
     const rankings = await this.leaderboardService.getRankings(data.sessionId);
 
@@ -611,28 +608,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     await this.emitRosterUpdate(data.sessionId);
 
     if (engine.isEveryoneReady()) {
-      const payload = await this.gameService.nextRound(data.sessionId);
+      this.server.to(data.sessionId).emit('game:round_end', {
+        assetPrices: engine.getState().assetPrices,
+        round: engine.getState().currentRound,
+      });
 
-      if (payload.isGameOver) {
-        const rankings = await this.leaderboardService.getRankings(data.sessionId);
-        this.server.to(data.sessionId).emit('sessionEnded', {
-          state: payload.state,
-          rankings,
-          scores: payload.scores,
-        });
-      } else {
-        this.server.to(data.sessionId).emit('game:round_start', {
-          assetPrices: payload.assetPrices,
-          round: payload.round,
-          news: payload.news,
-          macro: payload.macro,
-          timer: payload.timer,
-          status: 'NEWS_BREAK',
-        });
-
-        const rankings = await this.leaderboardService.getRankings(data.sessionId);
-        this.server.to(data.sessionId).emit('leaderboardUpdate', { rankings });
-      }
+      this.advanceRound(data.sessionId);
     }
   }
 

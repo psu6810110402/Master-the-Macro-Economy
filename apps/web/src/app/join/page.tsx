@@ -102,15 +102,15 @@ export default function JoinPage() {
               <Loader2 className="w-6 h-6 animate-spin" />
             ) : (
               <>
-                Join Terminal <ChevronRight className="w-6 h-6" />
+                Join Session <ChevronRight className="w-6 h-6" />
               </>
             )}
           </Button>
         </form>
 
         <div className="mt-12 pt-8 border-t border-[oklch(var(--border-subtle))] text-center">
-          <p className="text-sm text-[oklch(var(--text-muted))] uppercase tracking-widest font-bold">
-            Hackanomics v1.0 // Market Simulation
+          <p className="text-sm text-[oklch(var(--text-muted))] font-medium">
+            Hackanomics — Market Simulation Platform
           </p>
         </div>
       </motion.div>

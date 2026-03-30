@@ -64,7 +64,8 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       
       setContextSessionId(result.sessionId);
       
-      router.push('/lobby');
+      // Directly go to trading screen once joined
+      router.push('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Invalid Invite Code or Connection Error.');
     } finally {

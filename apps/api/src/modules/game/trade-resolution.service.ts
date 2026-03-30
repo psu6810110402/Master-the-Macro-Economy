@@ -34,87 +34,93 @@ export class TradeResolutionService {
 
     const totalValue = Number(playerPortfolio.totalValue);
 
-    // 3. Atomic Transaction: Save record + Update Holdings
-    return await prisma.$transaction(async (tx: any) => {
-      // Create permanent Record
-      const record = await tx.tradeRecord.create({
-        data: {
-          sessionId,
-          playerId,
-          round,
-          portfolio: JSON.stringify(allocation),
-          totalValue,
-          isAutoLock,
-        },
-      });
+    const maxTries = 5;
 
-      // Update actual Holdings in the DB for persistence
-      // We first clear existing holdings for this portfolio
-      await tx.holding.deleteMany({
-        where: { portfolioId: playerPortfolio.id },
-      });
-
-      // note: The 7 Macro Categories map to underlying asset types/sectors
-      const categoryMapping: Record<string, string[]> = {
-        'TECH': ['STOCK'], // Will filter for TECH sectors in logic
-        'BOND': ['BOND'],
-        'GOLD': ['COMMODITY'],
-        'CRYPTO': ['CRYPTO'],
-        'INDUSTRIAL': ['STOCK'],
-        'REAL_ESTATE': ['REAL_ESTATE', 'STOCK'],
-        'CASH': [],
-      };
-
-      const allAssets = await tx.asset.findMany({ where: { isActive: true } });
-      
-      let remainingCash = totalValue;
-
-      for (const [category, percent] of Object.entries(allocation)) {
-        if (percent <= 0 || category === 'CASH') continue;
-
-        // Find assets belonging to this category
-        let categoryAssets = allAssets.filter((a: any) => {
-            if (category === 'TECH') return a.type === 'STOCK' && (a.symbol.startsWith('STK') || ['AAPL','MSFT','GOOGL','NVDA','TSLA','AMD'].includes(a.symbol));
-            if (category === 'INDUSTRIAL') return a.type === 'STOCK' && ['CAT','GE','HON','BA','XOM','CVX'].includes(a.symbol);
-            if (category === 'BOND') return a.type === 'BOND';
-            if (category === 'GOLD') return a.type === 'COMMODITY';
-            if (category === 'CRYPTO') return a.type === 'CRYPTO';
-            if (category === 'REAL_ESTATE') return a.type === 'REAL_ESTATE' || a.symbol === 'VNQ';
-            return false;
-        });
-
-        if (categoryAssets.length === 0) continue;
-
-        const targetCategoryValue = (percent / 100) * totalValue;
-        const valuePerAsset = targetCategoryValue / categoryAssets.length;
-
-        for (const asset of categoryAssets) {
-          const price = currentAssetPrices[asset.symbol] || 100;
-          const quantity = valuePerAsset / price;
-
-          await tx.holding.create({
+    for (let attempt = 1; attempt <= maxTries; attempt++) {
+      try {
+        return await prisma.$transaction(async (tx: any) => {
+          // Create permanent Record
+          const record = await tx.tradeRecord.create({
             data: {
-              portfolioId: playerPortfolio.id,
-              assetId: asset.id,
-              quantity,
-              avgCost: price,
+              sessionId,
+              playerId,
+              round,
+              portfolio: JSON.stringify(allocation),
+              totalValue,
+              isAutoLock,
             },
           });
+
+          // Update actual Holdings in the DB for persistence
+          // We first clear existing holdings for this portfolio
+          await tx.holding.deleteMany({
+            where: { portfolioId: playerPortfolio.id },
+          });
+
+          const allAssets = await tx.asset.findMany({ where: { isActive: true } });
+
+          let remainingCash = totalValue;
+          const holdingInserts: any[] = [];
+
+          for (const [category, percent] of Object.entries(allocation)) {
+            if (percent <= 0 || category === 'CASH') continue;
+
+            const categoryAssets = allAssets.filter((a: any) => {
+              if (category === 'TECH') return a.type === 'STOCK' && (a.symbol.startsWith('STK') || ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'AMD'].includes(a.symbol));
+              if (category === 'INDUSTRIAL') return a.type === 'STOCK' && ['CAT', 'GE', 'HON', 'BA', 'XOM', 'CVX'].includes(a.symbol);
+              if (category === 'BOND') return a.type === 'BOND';
+              if (category === 'GOLD') return a.type === 'COMMODITY';
+              if (category === 'CRYPTO') return a.type === 'CRYPTO';
+              if (category === 'REAL_ESTATE') return a.type === 'REAL_ESTATE' || a.symbol === 'VNQ';
+              return false;
+            });
+
+            if (categoryAssets.length === 0) continue;
+
+            const targetCategoryValue = (percent / 100) * totalValue;
+            const valuePerAsset = targetCategoryValue / categoryAssets.length;
+
+            for (const asset of categoryAssets) {
+              const price = currentAssetPrices[asset.symbol] || 100;
+              const quantity = valuePerAsset / price;
+
+              holdingInserts.push({
+                portfolioId: playerPortfolio.id,
+                assetId: asset.id,
+                quantity,
+                avgCost: price,
+              });
+            }
+
+            remainingCash -= targetCategoryValue;
+          }
+
+          if (holdingInserts.length > 0) {
+            await tx.holding.createMany({ data: holdingInserts });
+          }
+
+          // Update portfolio cash balance (should be close to 0 if 100% allocated)
+          await tx.portfolio.update({
+            where: { id: playerPortfolio.id },
+            data: {
+              cashBalance: Math.max(0, remainingCash),
+              updatedAt: new Date(),
+            },
+          });
+
+          return record;
+        });
+      } catch (err: any) {
+        const shouldRetry = err.message?.includes('Unable to start a transaction');
+        if (attempt < maxTries && shouldRetry) {
+          await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+          continue;
         }
-
-        remainingCash -= targetCategoryValue;
+        throw err;
       }
+    }
 
-      // Update portfolio cash balance (should be close to 0 if 100% allocated)
-      await tx.portfolio.update({
-        where: { id: playerPortfolio.id },
-        data: {
-          cashBalance: Math.max(0, remainingCash),
-          updatedAt: new Date(),
-        },
-      });
-
-      return record;
-    });
+    throw new Error('Unable to commit portfolio after multiple retries');
   }
 }
+

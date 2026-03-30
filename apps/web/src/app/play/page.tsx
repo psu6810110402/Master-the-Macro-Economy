@@ -4,9 +4,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useSocket } from '@/hooks/useSocket';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  ArrowUpRight, ArrowDownRight, TrendingUp, Clock, 
-  Zap, Activity, DollarSign, BarChart3, Lock, ShieldCheck 
+import {
+  ArrowUpRight, ArrowDownRight, Clock,
+  Zap, Activity, DollarSign, BarChart3, Lock, ShieldCheck
 } from 'lucide-react';
 import RoundResultModal from '@/components/game/RoundResultModal';
 import GameOverModal from '@/components/game/GameOverModal';
@@ -31,9 +31,7 @@ const ASSET_CATEGORIES = [
 
 type AllocationMap = Record<string, number>;
 
-const DEFAULT_ALLOCATION: AllocationMap = {
-  TECH: 15, INDUSTRIAL: 15, CONSUMER: 15, BOND: 15, GOLD: 15, CRYPTO: 15, CASH: 10,
-};
+import { DEFAULT_ALLOCATION } from '@hackanomics/engine';
 import { api } from '@/lib/api';
 
 // ─── TYPES ──────────────────────────────────────────────────────────────
@@ -73,7 +71,6 @@ import { useSession } from '@/context/SessionContext';
 
 export default function PlayPage() {
   const { sessionId: contextSessionId, setSessionId, isInitialized } = useSession();
-  const [sessionId, setSessionIdState] = useState<string>('');
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
@@ -82,14 +79,15 @@ export default function PlayPage() {
   const [totalRounds, setTotalRounds] = useState(5);
   const [timer, setTimer] = useState(0); // seconds remaining
   const [timerActive, setTimerActive] = useState(false);
-  const [isReady, setIsReady] = useState(false);
   const [isCommitted, setIsCommitted] = useState(false);
   const [isAutoLocked, setIsAutoLocked] = useState(false);
 
-  // Game Phase state machine (Frontend sub-states)
-  const [gamePhase, setGamePhase] = useState<'LOBBY' | 'BRIEFING' | 'TRADING' | 'CLOSED'>('LOBBY');
+  const [gamePhase, setGamePhase] = useState<'LOBBY' | 'BRIEFING' | 'TRADING' | 'CLOSED' | 'RESULTS'>('LOBBY');
   const [totalTimerSeconds, setTotalTimerSeconds] = useState(180); // For progress calculation
   const [showRoundBriefing, setShowRoundBriefing] = useState(false);
+  const [readyCount, setReadyCount] = useState(0);
+  const [totalPlayers, setTotalPlayers] = useState(0);
+  const [scenarioTitle, setScenarioTitle] = useState('');
 
   // Allocation state
   const [allocation, setAllocation] = useState<AllocationMap>({ ...DEFAULT_ALLOCATION });
@@ -112,12 +110,17 @@ export default function PlayPage() {
   const [isGameOverOpen, setIsGameOverOpen] = useState(false);
   const [rankings, setRankings] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
+  
+  // Phase 3: Fun & Engagement States
+  const [previousRank, setPreviousRank] = useState<number | null>(null);
+  const [isFirstToCommit, setIsFirstToCommit] = useState(false);
+  
+  const myRankInfo = rankings.find(r => r.userId === currentUserId);
 
   // ─── INIT ───────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!isInitialized) return;
-    if (contextSessionId) setSessionIdState(contextSessionId);
 
     const fetchData = async () => {
       try {
@@ -150,16 +153,27 @@ export default function PlayPage() {
 
   // ─── SOCKET EVENTS ──────────────────────────────────────────────────
 
-  const { isConnected, lastEvent, emit } = useSocket(sessionId);
+  const { isConnected, lastEvent, emit } = useSocket(contextSessionId || undefined);
+
+  const refreshPortfolio = useCallback(async () => {
+    if (!contextSessionId) return;
+    try {
+      const data = await api.get<Portfolio>(`portfolio/${contextSessionId}`);
+      setPortfolio(data);
+    } catch (err) {
+      console.error('Failed to refresh portfolio:', err);
+      setError('Failed to sync portfolio data. Please check your connection.');
+    }
+  }, [contextSessionId]);
 
   // Periodic ping to keep session alive for Fix #21
   useEffect(() => {
-    if (!isConnected || !sessionId) return;
+    if (!isConnected || !contextSessionId) return;
     const interval = setInterval(() => {
-      emit('player:ping', { sessionId });
+      emit('player:ping', { sessionId: contextSessionId });
     }, 60000); // Every 60s
     return () => clearInterval(interval);
-  }, [isConnected, sessionId, emit]);
+  }, [isConnected, contextSessionId, emit]);
 
   useEffect(() => {
     if (!lastEvent) return;
@@ -189,21 +203,27 @@ export default function PlayPage() {
         
         if (lastEvent.data.news) {
           setBreakingNews(lastEvent.data.news);
+          setScenarioTitle(lastEvent.data.news.headline || '');
+        } else if (lastEvent.data.scenarioTitle) {
+          setScenarioTitle(lastEvent.data.scenarioTitle);
+        } else {
+          setScenarioTitle('');
         }
+        
         if (lastEvent.data.macro) {
           setMacro(lastEvent.data.macro);
         }
         // Don't start timer yet — timer starts after news dismiss (via marketOpened)
         setTimerActive(false);
-        setIsReady(false);
         setIsCommitted(false);
         setIsAutoLocked(false);
+        setReadyCount(0);
+        setTotalPlayers(0);
+        setIsFirstToCommit(false);
         setAllocation({ ...DEFAULT_ALLOCATION });
         
         // Refresh portfolio
-        if (sessionId) {
-          api.get<Portfolio>(`portfolio/${sessionId}`).then(setPortfolio).catch(() => {});
-        }
+        refreshPortfolio();
         break;
 
       case 'game:timer_tick':
@@ -213,17 +233,55 @@ export default function PlayPage() {
         break;
 
       case 'game:round_end':
+        // Generate summary data for RoundResultModal
+        const newPrices = lastEvent.data.assetPrices || {};
+        const changes: Record<string, { oldPrice: number; newPrice: number; changePct: number }> = {};
+        let topGainer = { symbol: '', change: -999 };
+        
+        Object.entries(newPrices).forEach(([sym, newPriceStr]) => {
+          const newPrice = Number(newPriceStr);
+          const oldPrice = prices[sym] || newPrice;
+          const changePct = oldPrice > 0 ? ((newPrice - oldPrice) / oldPrice) * 100 : 0;
+          changes[sym] = { oldPrice, newPrice, changePct };
+          if (changePct > topGainer.change) {
+            topGainer = { symbol: sym, change: changePct };
+          }
+        });
+        
+        let newTotalValue = portfolio ? portfolio.cashBalance : 100000;
+        if (portfolio) {
+          portfolio.holdings.forEach((h: any) => {
+             const priceStr = newPrices[h.asset.symbol];
+             const price = priceStr !== undefined ? Number(priceStr) : h.livePrice;
+             newTotalValue += h.quantity * price;
+          });
+        }
+        const oldTotalValue = portfolio ? portfolio.totalValue : 100000;
+        const portChangeAbs = newTotalValue - oldTotalValue;
+        const portChangePct = oldTotalValue > 0 ? (portChangeAbs / oldTotalValue) * 100 : 0;
+        
+        setRoundSummary({
+          previousRound: currentRound,
+          lastEvent: breakingNews,
+          priceChanges: changes,
+          topGainer: topGainer.symbol ? topGainer : { symbol: 'N/A', change: 0 },
+          portfolioChange: {
+            absolute: portChangeAbs,
+            percent: portChangePct,
+            newTotal: newTotalValue
+          }
+        });
+        setIsRoundResultOpen(true);
+
         // Phase: CLOSED → then results
         setGamePhase('CLOSED');
         setPreviousPrices(prices);
-        setPrices(lastEvent.data.assetPrices || {});
+        setPrices(newPrices);
         setTimerActive(false);
         setTimer(0);
         // Refresh portfolio with updated values, then clear CLOSED after 3s
-        if (sessionId) {
-          api.get<Portfolio>(`portfolio/${sessionId}`).then(setPortfolio).catch(() => {});
-        }
-        setTimeout(() => setGamePhase('LOBBY'), 3000);
+        refreshPortfolio();
+        setTimeout(() => setGamePhase('RESULTS'), 3000);
         break;
 
       case 'marketOpened':
@@ -237,17 +295,15 @@ export default function PlayPage() {
           setTotalTimerSeconds(lastEvent.data.timer);
           setTimerActive(true);
         }
-        setIsReady(false);
         setIsCommitted(false);
         setIsAutoLocked(false);
-        setAllocation({ ...DEFAULT_ALLOCATION });
+        // Removed setAllocation to avoid resetting sliders twice
         break;
 
       case 'trade:confirmed':
+      case 'tradeAcknowledged':
         // Our trade was confirmed — refresh portfolio
-        if (sessionId) {
-          api.get<Portfolio>(`portfolio/${sessionId}`).then(setPortfolio).catch(() => {});
-        }
+        refreshPortfolio();
         break;
 
       case 'marketUpdate':
@@ -262,14 +318,11 @@ export default function PlayPage() {
         }
         break;
 
-      case 'tradeAcknowledged':
-        if (sessionId) {
-          api.get<Portfolio>(`portfolio/${sessionId}`).then(setPortfolio).catch(() => {});
-        }
         break;
 
       case 'leaderboardUpdate':
         if (lastEvent.data.rankings) {
+          if (myRankInfo) setPreviousRank(myRankInfo.rank);
           setRankings(lastEvent.data.rankings);
         }
         break;
@@ -286,26 +339,17 @@ export default function PlayPage() {
         break;
 
       case 'game:player_ready':
-        // Could show ready count in UI — for now just log
+        setReadyCount(lastEvent.data.readyCount || 0);
+        setTotalPlayers(lastEvent.data.totalCount || 0);
         break;
     }
-  }, [lastEvent, sessionId]);
+  }, [lastEvent, contextSessionId, refreshPortfolio, currentUserId, currentRound, breakingNews, portfolio, prices, myRankInfo]);
 
   // ─── TIMER ──────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (!timerActive || timer <= 0) return;
-    const interval = setInterval(() => {
-      setTimer(prev => {
-        if (prev <= 1) {
-          setTimerActive(false);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [timerActive, timer]);
+  // Note: The timer local setInterval has been removed to prevent state drifting 
+  // and jitter. We rely completely on the server-authoritative game:timer_tick 
+  // that arrives every 1000ms.
 
   const formatTimer = (s: number) => {
     const mins = Math.floor(s / 60);
@@ -342,21 +386,30 @@ export default function PlayPage() {
     });
 
     // Fix: Use the computed update for emission
-    emit('trade:update', { sessionId, allocation: finalUpdated });
-  }, [sessionId, emit]);
+    emit('trade:update', { sessionId: contextSessionId, allocation: finalUpdated });
+  }, [contextSessionId, emit]);
 
   const handleCommitAllocation = useCallback(() => {
     if (!isValidAlloc || isCommitted) return;
     setIsCommitted(true);
-    emit('trade:commit', { sessionId, allocation });
-  }, [isValidAlloc, isCommitted, sessionId, allocation, emit]);
+    emit('trade:commit', { sessionId: contextSessionId, allocation });
+  }, [isValidAlloc, isCommitted, contextSessionId, allocation, emit]);
 
   // Auto-lock detection when timer hits 0
   useEffect(() => {
-    if (timer <= 0 && timerActive === false && !isCommitted && currentRound > 0) {
+    // Optimization: Remove 'timer' from deps to avoid re-running every second.
+    // Since 'timerActive' is synced to 'timer > 0', it's a stable trigger.
+    if (!timerActive && timer <= 0 && !isCommitted && currentRound > 0) {
       setIsAutoLocked(true);
     }
-  }, [timer, timerActive, isCommitted, currentRound]);
+  }, [timerActive, isCommitted, currentRound]);
+
+  // First-to-commit detection
+  useEffect(() => {
+    if (isCommitted && readyCount === 1) {
+      setIsFirstToCommit(true);
+    }
+  }, [isCommitted, readyCount]);
 
 
   // ─── RENDER ─────────────────────────────────────────────────────────
@@ -364,18 +417,9 @@ export default function PlayPage() {
   if (isLoading || !isInitialized) {
     return (
       <DashboardLayout title="Terminal" currentRound={currentRound} totalValue={0}>
-        <div className="h-[70vh] flex flex-col items-center justify-center opacity-40 uppercase tracking-[0.4em] font-black text-xs text-[oklch(var(--text-muted))]">
-          <motion.div 
-            animate={{ opacity: [0.3, 1, 0.3], scale: [0.98, 1, 0.98] }} 
-            transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-            className="flex flex-col items-center gap-6"
-          >
-            <div className="flex gap-2">
-              <div className="w-16 h-[2px] bg-[oklch(var(--accent-brand))]" />
-              <div className="w-4 h-[2px] bg-[oklch(var(--accent-brand))]" />
-            </div>
-            <span>ESTABLISHING SECURE UPLINK...</span>
-          </motion.div>
+        <div className="h-[70vh] flex flex-col items-center justify-center gap-4">
+          <div className="w-8 h-8 border-t-2 border-[oklch(var(--accent-brand))] animate-spin rounded-full" />
+          <span className="text-xs font-bold uppercase tracking-widest text-[oklch(var(--text-muted))]">Connecting…</span>
         </div>
       </DashboardLayout>
     );
@@ -387,11 +431,13 @@ export default function PlayPage() {
 
   return (
     <>
-      {/* Round Briefing Overlay (Cinematic Transition) */}
+      {/* Round Briefing Overlay (Cinematic Transition with F1 Podium) */}
       <RoundBriefingOverlay
         isOpen={showRoundBriefing}
         round={currentRound}
         totalRounds={totalRounds}
+        scenarioTitle={scenarioTitle || 'MARKET BRIEFING'}
+        rankings={rankings}
         onComplete={() => {
           setShowRoundBriefing(false);
           // Show breaking news after briefing
@@ -410,7 +456,9 @@ export default function PlayPage() {
         macro={macro}
         onDismiss={() => {
           setShowNews(false);
-          emit('player:ready_ack', { sessionId, round: currentRound });
+          setTimeout(() => {
+            emit('player:ready_ack', { sessionId: contextSessionId, round: currentRound });
+          }, 800); // Wait for transition
         }}
       />
 
@@ -425,15 +473,15 @@ export default function PlayPage() {
 
           {/* Timer & Status Bar — Enhanced with CountdownHUD */}
           <div className="flex items-center justify-between p-5 bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-strong))] shadow-[0_10px_30px_rgba(0,0,0,0.5)] relative z-10">
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-5">
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-[oklch(var(--status-success))] animate-pulse' : 'bg-[oklch(var(--status-error))]'}`} />
-                <span className="text-[9px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">
-                  {isConnected ? 'CONNECTED' : 'OFFLINE'}
+                <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-[oklch(var(--accent-up))] animate-pulse' : 'bg-[oklch(var(--accent-down))]'}`} />
+                <span className="text-xs font-bold text-[oklch(var(--text-muted))]">
+                  {isConnected ? 'Live' : 'Offline'}
                 </span>
               </div>
-              <div className="text-[9px] font-black uppercase tracking-widest text-[oklch(var(--accent-brand))]">
-                ROUND {currentRound} / {totalRounds}
+              <div className="text-xs font-black uppercase tracking-wider text-[oklch(var(--accent-brand))]">
+                Round {currentRound} / {totalRounds}
               </div>
             </div>
 
@@ -446,32 +494,39 @@ export default function PlayPage() {
 
             {/* Macro Indicators Mini */}
             <div className="flex items-center gap-4">
-              {[
-                { label: 'IR', value: `${macro.interestRate.toFixed(1)}%`, icon: <ActivityIcon /> },
-                { label: 'INF', value: `${macro.inflation.toFixed(1)}%`, icon: <TrendingUp size={10} /> },
-                { label: 'GDP', value: `${macro.gdpGrowth >= 0 ? '+' : ''}${macro.gdpGrowth.toFixed(1)}%`, icon: <BarChart3 size={10} /> },
+              {React.useMemo(() => [
+                { label: 'Rate', value: `${macro.interestRate.toFixed(1)}%` },
+                { label: 'CPI', value: `${macro.inflation.toFixed(1)}%` },
+                { label: 'GDP', value: `${macro.gdpGrowth >= 0 ? '+' : ''}${macro.gdpGrowth.toFixed(1)}%` },
               ].map(m => (
-                <div key={m.label} className="text-center">
-                  <div className="text-[7px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">{m.label}</div>
-                  <div className="text-[10px] font-black font-mono">{m.value}</div>
+                <div key={m.label} className="text-center hidden sm:block">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-[oklch(var(--text-muted))]">{m.label}</div>
+                  <div className="text-xs font-black tabular-nums">{m.value}</div>
                 </div>
-              ))}
+              )), [macro.interestRate, macro.inflation, macro.gdpGrowth])}
               {macro.blackSwanActive && (
-                <div className="px-2 py-1 bg-[oklch(var(--status-error)/0.15)] border border-[oklch(var(--status-error)/0.3)] text-[oklch(var(--status-error))] text-[8px] font-black uppercase tracking-widest animate-pulse">
-                  BLACK SWAN
+                <div className="px-2.5 py-1 bg-[oklch(var(--accent-down)/0.15)] border border-[oklch(var(--accent-down)/0.3)] text-[oklch(var(--accent-down))] text-[10px] font-black uppercase tracking-widest animate-pulse">
+                  Black Swan
                 </div>
               )}
             </div>
 
             {/* Status Badge */}
-            <div className={`px-4 py-2 text-[9px] font-black uppercase tracking-widest border ${
-              isCommitted 
-                ? 'border-[oklch(var(--status-success))] text-[oklch(var(--status-success))] bg-[oklch(var(--status-success)/0.1)]' 
+            <div className={`px-4 py-2 text-xs font-bold uppercase tracking-wider border flex items-center gap-3 ${
+              isCommitted
+                ? 'border-[oklch(var(--accent-up)/0.4)] text-[oklch(var(--accent-up))] bg-[oklch(var(--accent-up)/0.08)]'
                 : isAutoLocked
-                  ? 'border-[oklch(var(--status-warning))] text-[oklch(var(--status-warning))] bg-[oklch(var(--status-warning)/0.1)]'
-                  : 'border-[oklch(var(--border-subtle))] text-[oklch(var(--text-muted))]'
+                  ? 'border-[oklch(var(--status-warning)/0.4)] text-[oklch(var(--status-warning))] bg-[oklch(var(--status-warning)/0.08)]'
+                  : 'border-[oklch(var(--border-subtle))] text-[oklch(var(--text-secondary))]'
             }`}>
-              {isCommitted ? '🔒 POSITION SECURED' : isAutoLocked ? '⏰ AUTO-LOCKED' : gamePhase === 'TRADING' ? 'TRADING OPEN' : 'STANDBY'}
+              {myRankInfo && (
+                <div className="pr-3 flex items-center gap-1 border-r border-current/30 text-[oklch(var(--accent-brand))]">
+                  <span>#{myRankInfo.rank}</span>
+                  {previousRank && myRankInfo.rank < previousRank && <ArrowUpRight size={12} className="text-[oklch(var(--accent-up))]" />}
+                  {previousRank && myRankInfo.rank > previousRank && <ArrowDownRight size={12} className="text-[oklch(var(--accent-down))]" />}
+                </div>
+              )}
+              <span>{isCommitted ? 'Position Locked' : isAutoLocked ? 'Auto-Locked' : gamePhase === 'TRADING' ? 'Trading Open' : 'Standby'}</span>
             </div>
           </div>
 
@@ -481,24 +536,24 @@ export default function PlayPage() {
             <div className="lg:col-span-4 space-y-6">
               <div className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-strong))] p-6 relative overflow-hidden group shadow-[0_0_40px_rgba(0,0,0,0.3)]">
                 <div className="absolute top-0 right-0 w-48 h-48 bg-[oklch(var(--accent-brand)/0.03)] rounded-full blur-3xl -mr-16 -mt-16 transition-all duration-1000 group-hover:bg-[oklch(var(--accent-brand)/0.15)]" />
-                <h2 className="text-[9px] uppercase font-black tracking-[0.3em] text-[oklch(var(--text-muted))] mb-4 flex items-center gap-2">
+                <h2 className="text-xs font-bold uppercase tracking-widest text-[oklch(var(--text-muted))] mb-4 flex items-center gap-2">
                    <Activity size={12} className="text-[oklch(var(--accent-brand))]" /> Portfolio Value
                 </h2>
                 <div className="text-fluid-h2 font-black font-display tracking-tighter mb-2 tabular-nums drop-shadow-[0_0_12px_oklch(var(--accent-brand)/0.2)]">
                   <TickingNumber value={totalValue} prefix="$" duration={1200} />
                   <span className="text-[oklch(var(--text-muted))] text-xl">.00</span>
                 </div>
-                <div className={`flex items-center gap-1 text-[11px] font-black tracking-widest uppercase ${returnPct >= 0 ? 'text-[oklch(var(--accent-up))] drop-shadow-[0_0_8px_oklch(var(--accent-up)/0.4)]' : 'text-[oklch(var(--accent-down))] drop-shadow-[0_0_8px_oklch(var(--accent-down)/0.4)]'}`}>
-                  {returnPct >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                  {returnPct >= 0 ? 'YIELD +' : 'CRASH '}{returnPct.toFixed(2)}%
+                <div className={`flex items-center gap-1 text-xs font-bold tabular-nums ${returnPct >= 0 ? 'text-[oklch(var(--accent-up))]' : 'text-[oklch(var(--accent-down))]'}`}>
+                  {returnPct >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
+                  {returnPct >= 0 ? '+' : ''}{returnPct.toFixed(2)}% total return
                 </div>
               </div>
 
               {/* Current Holdings */}
               <div className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] p-6">
                 <div className="flex justify-between items-center mb-4 border-b border-[oklch(var(--border-subtle)/0.5)] pb-3">
-                  <h2 className="text-[9px] uppercase font-black tracking-[0.3em] text-[oklch(var(--text-primary))]">
-                    Holdings <span className="opacity-40">[{portfolio?.holdings.length || 0}]</span>
+                  <h2 className="text-xs font-bold uppercase tracking-widest text-[oklch(var(--text-muted))]">
+                    Holdings <span className="opacity-60">({portfolio?.holdings.length || 0})</span>
                   </h2>
                 </div>
                 <div className="space-y-1 max-h-48 overflow-y-auto custom-scrollbar pr-2">
@@ -509,11 +564,11 @@ export default function PlayPage() {
                     return (
                       <div key={h.asset.id} className="flex justify-between items-center py-2 border-b border-[oklch(var(--border-subtle)/0.3)] last:border-0">
                         <div>
-                          <div className="text-[10px] font-black uppercase tracking-tight">{h.asset.symbol}</div>
-                          <div className="text-[8px] font-bold text-[oklch(var(--text-muted))]">{h.quantity.toFixed(1)} units</div>
+                          <div className="text-xs font-black uppercase tracking-tight">{h.asset.symbol}</div>
+                          <div className="text-[11px] font-medium text-[oklch(var(--text-muted))]">{h.quantity.toFixed(1)} units</div>
                         </div>
                         <div className="text-right">
-                          <div className="text-[10px] font-black font-mono">${h.currentValue.toLocaleString()}</div>
+                          <div className="text-xs font-bold tabular-nums">${h.currentValue.toLocaleString()}</div>
                           <PriceChangeIndicator changePct={pctChange} className="text-[8px] justify-end" />
                         </div>
                       </div>
@@ -521,8 +576,8 @@ export default function PlayPage() {
                   })}
                   {(!portfolio?.holdings || portfolio.holdings.length === 0) && (
                     <div className="text-center py-8">
-                       <Zap size={20} className="mx-auto text-[oklch(var(--text-muted)/0.3)] mb-3" />
-                       <div className="text-[oklch(var(--text-muted))] text-[8px] font-black uppercase tracking-widest opacity-60">NO POSITIONS YET</div>
+                       <Zap size={18} className="mx-auto text-[oklch(var(--text-muted)/0.3)] mb-3" />
+                       <div className="text-xs text-[oklch(var(--text-muted))]">No positions yet</div>
                     </div>
                   )}
                 </div>
@@ -532,7 +587,7 @@ export default function PlayPage() {
               <div className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))]">
                 <div className="p-4 border-b border-[oklch(var(--border-subtle))] flex items-center gap-2">
                   <Zap size={12} className="text-[oklch(var(--accent-brand))]" />
-                  <span className="text-[9px] font-black uppercase tracking-[0.3em]">Live Market</span>
+                  <span className="text-xs font-bold uppercase tracking-widest text-[oklch(var(--text-muted))]">Live Market</span>
                 </div>
                 <div className="divide-y divide-[oklch(var(--border-subtle)/0.3)] max-h-64 overflow-y-auto">
                   {assets.map((asset) => {
@@ -542,11 +597,11 @@ export default function PlayPage() {
                     return (
                       <div key={asset.id} className="flex justify-between items-center px-4 py-2.5 hover:bg-white/[0.02] transition-colors">
                         <div>
-                          <div className="text-[10px] font-black uppercase">{asset.symbol}</div>
-                          <div className="text-[8px] text-[oklch(var(--text-muted))] font-bold uppercase tracking-widest">{asset.type}</div>
+                          <div className="text-xs font-black uppercase">{asset.symbol}</div>
+                          <div className="text-[11px] text-[oklch(var(--text-muted))] font-medium">{asset.type}</div>
                         </div>
                         <div className="text-right flex items-center gap-3">
-                          <span className="text-[10px] font-black font-mono">${livePrice.toFixed(2)}</span>
+                          <span className="text-xs font-black tabular-nums">${livePrice.toFixed(2)}</span>
                           <PriceChangeIndicator changePct={changePct} className="text-[9px]" />
                         </div>
                       </div>
@@ -561,16 +616,14 @@ export default function PlayPage() {
               <div className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-strong))] shadow-[0_0_40px_rgba(0,0,0,0.3)]">
                 <div className="p-5 border-b border-[oklch(var(--border-strong))] flex justify-between items-center bg-[oklch(var(--bg-main))] relative overflow-hidden">
                   <div className="absolute top-0 left-0 w-[4px] h-full bg-[oklch(var(--accent-brand))]" />
-                  <h2 className="text-[10px] font-black uppercase tracking-[0.4em] flex items-center gap-3 text-[oklch(var(--text-primary))] pl-2">
-                    <BarChart3 size={14} className="text-[oklch(var(--accent-brand))]" /> Portfolio Allocation
+                  <h2 className="text-xs font-bold uppercase tracking-widest flex items-center gap-2 text-[oklch(var(--text-muted))] pl-2">
+                    <BarChart3 size={13} className="text-[oklch(var(--accent-brand))]" /> Allocation
                   </h2>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-[10px] font-black uppercase tracking-widest font-mono ${
-                      isValidAlloc ? 'text-[oklch(var(--status-success))]' : 'text-[oklch(var(--status-error))] animate-pulse'
-                    }`}>
-                      {totalAlloc.toFixed(1)}% / 100%
-                    </span>
-                  </div>
+                  <span className={`text-xs font-black tabular-nums ${
+                    isValidAlloc ? 'text-[oklch(var(--accent-up))]' : 'text-[oklch(var(--accent-down))] animate-pulse'
+                  }`}>
+                    {totalAlloc.toFixed(1)}% / 100%
+                  </span>
                 </div>
 
                 {/* Allocation Bar Visual */}
@@ -598,7 +651,10 @@ export default function PlayPage() {
                         <div className="flex justify-between items-center mb-2">
                           <div className="flex items-center gap-3">
                             <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: cat.color }} />
-                            <span className="text-[10px] font-black uppercase tracking-widest">{cat.label}</span>
+                            <span className="text-xs font-bold uppercase tracking-wide">{cat.label}</span>
+                            <span className="text-[8px] font-bold text-[oklch(var(--accent-brand))] opacity-80 hidden md:inline-block border border-[oklch(var(--accent-brand)/0.2)] px-1.5 py-0.5 bg-[oklch(var(--accent-brand)/0.05)]">
+                              {getMacroHint(cat.key, macro)}
+                            </span>
                           </div>
                           <div className="flex items-center gap-4">
                             <span className="text-[10px] font-mono font-bold text-[oklch(var(--text-muted))]">
@@ -634,15 +690,29 @@ export default function PlayPage() {
                 {/* Commit Button */}
                 <div className="p-6 pt-0">
                   {isCommitted ? (
-                    <div className="w-full py-5 bg-[oklch(var(--status-success)/0.1)] border border-[oklch(var(--status-success)/0.3)] text-center">
-                      <div className="flex items-center justify-center gap-3">
+                    <div className="w-full py-5 bg-[oklch(var(--status-success)/0.1)] border border-[oklch(var(--status-success)/0.3)] text-center relative overflow-hidden">
+                      {isFirstToCommit && (
+                        <motion.div 
+                          initial={{ x: '-100%' }} animate={{ x: '200%' }} transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+                          className="absolute inset-0 w-1/3 bg-gradient-to-r from-transparent via-[oklch(var(--status-success)/0.3)] to-transparent skew-x-12"
+                        />
+                      )}
+                      <div className="flex items-center justify-center gap-3 relative z-10">
                         <Lock size={16} className="text-[oklch(var(--status-success))]" />
                         <span className="text-sm font-black uppercase tracking-[0.2em] text-[oklch(var(--status-success))]">
                           Position Secured
+                          {isFirstToCommit && <span className="ml-3 px-2 py-0.5 bg-[oklch(var(--accent-brand))] text-white text-[9px] rounded-sm tracking-widest drop-shadow-[0_0_8px_oklch(var(--accent-brand))]">FIRST!</span>}
                         </span>
                       </div>
-                      <div className="text-[9px] font-bold uppercase tracking-widest text-[oklch(var(--text-muted))] mt-2">
-                        Waiting for other operatives...
+                      <div className="text-xs text-[oklch(var(--text-muted))] mt-1.5 flex items-center justify-center gap-2 relative z-10">
+                        {totalPlayers > 0 ? (
+                          <>
+                            <div className="w-1.5 h-1.5 rounded-full bg-[oklch(var(--accent-up))] animate-pulse" />
+                            Waiting for other players ({readyCount}/{totalPlayers} ready)
+                          </>
+                        ) : (
+                          'Waiting for other players…'
+                        )}
                       </div>
                     </div>
                   ) : isAutoLocked ? (
@@ -690,14 +760,11 @@ export default function PlayPage() {
         onClose={() => setIsGameOverOpen(false)}
         rankings={rankings}
         currentUserId={currentUserId}
-        sessionId={sessionId}
+        sessionId={contextSessionId || ''}
+        scenarioTitle={scenarioTitle}
       />
     </>
   );
-}
-
-function ActivityIcon() {
-  return <Activity size={10} />;
 }
 
 // ─── OPTIMIZED & HARDENED COMPONENTS ───────────────────────────────────────
@@ -712,34 +779,25 @@ function PriceChangeIndicator({ changePct, className = '' }: { changePct: number
   );
 }
 
-const MemoizedAssetRow = React.memo(({ 
-  asset, livePrice, changePct, onClick 
-}: { 
-  asset: Asset, livePrice: number, changePct: number, onClick: () => void 
-}) => {
-  return (
-    <motion.button
-      type="button"
-      onClick={onClick}
-      whileHover={{ backgroundColor: 'oklch(var(--bg-tertiary))', scale: 1.01 }}
-      whileTap={{ scale: 0.98 }}
-      transition={{ ease: "easeOut", duration: 0.2 }}
-      className="w-full text-left grid grid-cols-5 items-center px-6 py-4 cursor-pointer focus-visible outline-none transition-colors border-l-2 border-transparent hover:border-[oklch(var(--accent-brand))]"
-      aria-label={`Trade ${asset.name}`}
-    >
-      <div className="col-span-2">
-        <div className="text-sm font-black uppercase tracking-tight">{asset.symbol}</div>
-        <div className="text-[9px] font-bold text-[oklch(var(--text-muted))] uppercase tracking-widest">{asset.name}</div>
-      </div>
-      <div className="text-[8px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">
-        {asset.type}
-      </div>
-      <div className="text-right font-black font-mono text-sm tabular-nums">
-        ${livePrice.toFixed(2)}
-      </div>
-      <div className="text-right">
-        <PriceChangeIndicator changePct={changePct} className="text-sm justify-end" />
-      </div>
-    </motion.button>
-  );
-});
+
+
+function getMacroHint(categoryKey: string, macro: MacroState) {
+  switch (categoryKey) {
+    case 'BOND':
+      return macro.interestRate > 3.0 ? '↑ High IR → Good Yield, Low Price' : '↓ Low IR → Price Rallies';
+    case 'TECH':
+      return macro.interestRate > 3.0 ? '⚠ High IR → Financing expensive' : '↑ Low IR → Growth potential';
+    case 'GOLD':
+      return macro.inflation > 2.5 ? '↑ High Inflation → Strong Hedge' : '↓ Low Inflation → Less appeal';
+    case 'CRYPTO':
+      return macro.volatility > 0.25 ? '⚠ High Volatility → Extreme Risk' : '↑ Steady Market → Risk-on';
+    case 'INDUSTRIAL':
+      return macro.gdpGrowth > 2.0 ? '↑ High GDP → Supply expansion' : '⚠ Low GDP → Demand slowing';
+    case 'CONSUMER':
+      return macro.inflation > 2.5 ? '⚠ High Inflation → Consumer spend drops' : '↑ Steady Economy → High retail sales';
+    case 'CASH':
+      return macro.interestRate > 3.0 ? '↑ High IR → Good cash yield' : '⚠ Inflation erodes cash value';
+    default:
+      return '';
+  }
+}

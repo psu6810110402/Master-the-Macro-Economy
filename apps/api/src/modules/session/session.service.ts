@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { GameSession } from '@hackanomics/database';
 import { GameService } from '../game/game.service';
 import { AuditService } from '../audit/audit.service';
@@ -6,6 +6,7 @@ import { prisma } from '../../prisma';
 
 @Injectable()
 export class SessionService {
+  private readonly logger = new Logger(SessionService.name);
   constructor(
     private gameService: GameService,
     private auditService: AuditService,
@@ -15,7 +16,7 @@ export class SessionService {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase(); // 6-char code
     const totalRounds = format === 'SHORT' ? 3 : format === 'FULL' ? 7 : 5;
     
-    return prisma.gameSession.create({
+    const session = await prisma.gameSession.create({
       data: {
         name,
         code,
@@ -27,6 +28,9 @@ export class SessionService {
         totalRounds
       },
     });
+
+    this.logger.log(`[Session] Created: ${session.id} (${session.code}) by ${facilitatorId}`);
+    return session;
   }
 
   async getSessionsByFacilitator(facilitatorId: string) {
@@ -88,6 +92,7 @@ export class SessionService {
       });
     }
 
+    this.logger.log(`[Session] User ${userId} joined session ${session.code} (ID: ${session.id})`);
     return {
       sessionId: session.id,
       name: session.name,

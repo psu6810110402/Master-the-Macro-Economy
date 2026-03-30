@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useSession } from '@/context/SessionContext';
 
@@ -13,7 +13,8 @@ export const useSocket = (sessionId?: string) => {
   useEffect(() => {
     if (!sessionId) return;
 
-    const socket = io('http://localhost:3001', {
+    const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+    const socket = io(SOCKET_URL, {
       auth: { token },
       transports: ['websocket'],
       withCredentials: true,
@@ -42,7 +43,10 @@ export const useSocket = (sessionId?: string) => {
     });
 
     socket.on('connect_error', (error) => {
-      console.error('Connection error:', error);
+      console.error('WebSocket connection error:', error.message);
+      if (error.message === 'xhr poll error') {
+        console.warn('Is the API server running at', SOCKET_URL, '?');
+      }
     });
 
     // Central listener for ALL game events
@@ -67,6 +71,7 @@ export const useSocket = (sessionId?: string) => {
       // Session
       'sessionEnded',
       'roster:update',
+      'player:dropped',
     ];
 
     events.forEach(event => {
@@ -78,11 +83,11 @@ export const useSocket = (sessionId?: string) => {
     return () => {
       socket.disconnect();
     };
-  }, [sessionId]);
+  }, [sessionId, token]);
 
-  const emit = (event: string, data: any, callback?: (response: any) => void) => {
+  const emit = useCallback((event: string, data: any, callback?: (response: any) => void) => {
     socketRef.current?.emit(event, data, callback);
-  };
+  }, []);
 
   return { isConnected, lastEvent, emit, socket: socketRef };
 };

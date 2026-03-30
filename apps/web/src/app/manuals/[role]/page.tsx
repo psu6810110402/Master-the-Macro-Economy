@@ -10,7 +10,7 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 
 const MANUAL_CONTENT: Record<string, { title: string; icon: any; sections: { title: string; content: string[] }[] }> = {
   player: {
-    title: "Operative Handbook (Player)",
+    title: "Player Handbook",
     icon: <Users size={32} />,
     sections: [
       {
@@ -53,7 +53,7 @@ const MANUAL_CONTENT: Record<string, { title: string; icon: any; sections: { tit
     ]
   },
   facilitator: {
-    title: "Command Console Guide (Facilitator)",
+    title: "Facilitator Guide",
     icon: <Zap size={32} />,
     sections: [
       {
@@ -83,7 +83,7 @@ const MANUAL_CONTENT: Record<string, { title: string; icon: any; sections: { tit
     ]
   },
   admin: {
-    title: "Director Terminal Overview (Admin)",
+    title: "Admin Overview",
     icon: <Shield size={32} />,
     sections: [
       {
@@ -115,7 +115,7 @@ export default function ManualPage() {
       <div className="max-w-4xl mx-auto py-12 px-6">
         <Link href="/lobby">
           <Button variant="ghost" className="mb-8 text-[oklch(var(--text-muted))] hover:text-white flex items-center gap-2 uppercase tracking-widest text-[10px] font-black">
-            <ArrowLeft size={14} /> Return to Terminal
+            <ArrowLeft size={14} /> Back
           </Button>
         </Link>
 
@@ -124,8 +124,8 @@ export default function ManualPage() {
             {content.icon}
           </div>
           <div>
-            <div className="inline-block px-2 py-0.5 mb-3 bg-[oklch(var(--accent-brand)/0.1)] border border-[oklch(var(--accent-brand)/0.3)] text-[9px] font-black uppercase tracking-[0.4em] text-[oklch(var(--accent-brand))]">
-              Intel Classification: Level {role === 'admin' ? '3' : role === 'facilitator' ? '2' : '1'}
+            <div className="inline-block px-2 py-0.5 mb-3 bg-[oklch(var(--accent-brand)/0.1)] border border-[oklch(var(--accent-brand)/0.3)] text-[10px] font-bold uppercase tracking-widest text-[oklch(var(--accent-brand))]">
+              {role === 'admin' ? 'Admin' : role === 'facilitator' ? 'Facilitator' : 'Player'} Guide
             </div>
             <h1 className="text-4xl font-black uppercase tracking-tighter italic">{content.title}</h1>
           </div>
@@ -162,22 +162,22 @@ export default function ManualPage() {
             <div className="flex items-center gap-4">
               <BookOpen size={24} className="text-[oklch(var(--accent-brand))]" />
               <div className="text-left">
-                <div className="text-[10px] font-black uppercase tracking-widest text-white">Need further intel?</div>
-                <div className="text-[9px] text-[oklch(var(--text-muted))] uppercase tracking-widest mt-1">Contact your sector supervisor for priority support.</div>
+                <div className="text-sm font-bold text-white">Need help?</div>
+                <div className="text-xs text-[oklch(var(--text-muted))] mt-1">Contact your facilitator for support.</div>
               </div>
             </div>
             
             <div className="flex gap-4">
               {role !== 'player' && (
                 <Link href="/manuals/player">
-                  <Button className="bg-[oklch(var(--bg-secondary))] text-[oklch(var(--text-muted))] border border-[oklch(var(--border-strong))] font-black uppercase tracking-widest text-[9px] px-6 h-10 hover:border-[oklch(var(--accent-brand))] transition-all">
+                  <Button className="bg-[oklch(var(--bg-secondary))] text-[oklch(var(--text-muted))] border border-[oklch(var(--border-strong))] font-bold uppercase tracking-widest text-xs px-6 h-10 hover:border-[oklch(var(--accent-brand))] transition-all">
                     View Player Manual
                   </Button>
                 </Link>
               )}
               {role !== 'facilitator' && (
                 <Link href="/manuals/facilitator">
-                  <Button className="bg-[oklch(var(--bg-secondary))] text-[oklch(var(--text-muted))] border border-[oklch(var(--border-strong))] font-black uppercase tracking-widest text-[9px] px-6 h-10 hover:border-[oklch(var(--accent-brand))] transition-all">
+                  <Button className="bg-[oklch(var(--bg-secondary))] text-[oklch(var(--text-muted))] border border-[oklch(var(--border-strong))] font-bold uppercase tracking-widest text-xs px-6 h-10 hover:border-[oklch(var(--accent-brand))] transition-all">
                     View Facilitator Manual
                   </Button>
                 </Link>

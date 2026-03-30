@@ -2,16 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  Search, 
-  Filter, 
-  ShoppingCart, 
-  ArrowUpRight, 
-  Zap, 
+import {
+  TrendingUp,
+  TrendingDown,
+  Search,
+  ShoppingCart,
+  Zap,
   Info,
-  ChevronRight,
   Target,
   BarChart3
 } from 'lucide-react';
@@ -66,10 +63,12 @@ export default function MarketplacePage() {
     fetchAssets();
   }, [contextSessionId, isInitialized]);
 
-  if (isLoading || !isInitialized) return <div className="min-h-screen bg-black flex flex-col items-center justify-center text-white italic font-black uppercase tracking-[0.5em] gap-4">
-    <div className="w-12 h-12 border-t-2 border-[oklch(var(--accent-brand))] animate-spin rounded-full" />
-    Synchronizing Tactical Interface...
-  </div>;
+  if (isLoading || !isInitialized) return (
+    <div className="min-h-screen bg-[oklch(var(--bg-main))] flex flex-col items-center justify-center gap-4 text-[oklch(var(--text-muted))]">
+      <div className="w-8 h-8 border-2 border-t-[oklch(var(--accent-brand))] border-[oklch(var(--border-subtle))] rounded-full animate-spin" />
+      <span className="text-xs font-bold uppercase tracking-widest">Loading…</span>
+    </div>
+  );
 
   const handleTrade = async (trade: { symbol: string; quantity: number; action: 'BUY' | 'SELL' }) => {
     if (!sessionId) {
@@ -157,7 +156,7 @@ export default function MarketplacePage() {
         {/* Asset Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <AnimatePresence mode="popLayout">
-            {filteredAssets.map((asset, i) => (
+            {filteredAssets.map((asset) => (
               <motion.div
                 key={asset.symbol}
                 layout
@@ -176,7 +175,7 @@ export default function MarketplacePage() {
                       <p className="text-[10px] font-bold uppercase tracking-widest text-[oklch(var(--text-muted))]">{asset.name}</p>
                     </div>
                   </div>
-                  <div className={`px-2 py-1 text-[8px] font-black uppercase tracking-[0.2em] border ${
+                  <div className={`px-2 py-1 text-[10px] font-bold uppercase tracking-widest border ${
                     asset.sentiment === 'BULLISH' ? 'text-[oklch(var(--status-success))] border-[oklch(var(--status-success)/0.3)] bg-[oklch(var(--status-success)/0.05)]' :
                     asset.sentiment === 'BEARISH' ? 'text-[oklch(var(--status-error))] border-[oklch(var(--status-error)/0.3)] bg-[oklch(var(--status-error)/0.05)]' :
                     'text-[oklch(var(--text-muted))] border-[oklch(var(--border-subtle))] bg-[oklch(var(--bg-main))]'
@@ -221,10 +220,9 @@ export default function MarketplacePage() {
         {/* Info Box */}
         <div className="p-8 border-2 border-dashed border-[oklch(var(--border-subtle))] flex flex-col items-center text-center max-w-2xl mx-auto">
           <Zap className="text-[oklch(var(--accent-brand))] mb-4" size={32} />
-          <h2 className="text-xl font-black uppercase tracking-tighter mb-2 italic">Institutional Grade Liquidity</h2>
-          <p className="text-xs text-[oklch(var(--text-muted))] font-medium uppercase tracking-widest leading-relaxed">
-            All trades are executed through the Hackanomics Real-Time Engine (HRTE).
-            Latency is minimized via redundant mesh networking and zero-knowledge trade validation.
+          <h2 className="text-xl font-black uppercase tracking-tighter mb-2">Real-Time Trade Execution</h2>
+          <p className="text-sm text-[oklch(var(--text-muted))] font-medium leading-relaxed">
+            All trades are processed instantly through the Hackanomics simulation engine and reflected in your portfolio at the end of each round.
           </p>
         </div>
       </div>

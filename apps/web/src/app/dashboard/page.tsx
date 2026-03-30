@@ -149,9 +149,9 @@ export default function DashboardPage() {
   if (isLoading || !isInitialized) {
     return (
       <DashboardLayout title="Dashboard" currentRound={currentRound} totalValue={0}>
-        <div className="h-[60vh] flex flex-col items-center justify-center opacity-20 uppercase tracking-[0.3em] font-black">
-          <div className="w-12 h-[2px] bg-[oklch(var(--accent-brand))] mb-4 animate-pulse" />
-          Synchronizing with Global Market...
+        <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-[oklch(var(--text-muted))]">
+          <div className="w-8 h-8 border-2 border-t-[oklch(var(--accent-brand))] border-[oklch(var(--border-subtle))] rounded-full animate-spin" />
+          <span className="text-xs font-bold uppercase tracking-widest">Loading…</span>
         </div>
       </DashboardLayout>
     );
@@ -159,15 +159,15 @@ export default function DashboardPage() {
 
   if (gameStatus === 'WAITING' || (isConnected && !lastEvent)) {
     return (
-      <DashboardLayout title="Universal Lobby" currentRound={0} totalValue={portfolio?.totalValue || 100000}>
+      <DashboardLayout title="Waiting Room" currentRound={0} totalValue={portfolio?.totalValue || 100000}>
         <div className="h-[60vh] flex flex-col items-center justify-center space-y-6">
-          <div className="w-16 h-16 rounded-full border border-[oklch(var(--border-strong))] flex items-center justify-center bg-[oklch(var(--bg-secondary))] animate-pulse">
+          <div className="w-16 h-16 border border-[oklch(var(--border-subtle))] flex items-center justify-center bg-[oklch(var(--bg-secondary))] animate-pulse">
             <Lock className="text-[oklch(var(--text-muted))]" size={24} />
           </div>
           <div className="text-center space-y-2">
-            <h2 className="text-2xl font-black uppercase tracking-widest italic">Awaiting Facilitator</h2>
-            <p className="text-[10px] text-[oklch(var(--text-muted))] uppercase tracking-[0.3em] font-bold">
-              The strategic simulation will commence shortly.<br/>Please hold your position.
+            <h2 className="text-2xl font-black uppercase tracking-widest">Waiting for session to start</h2>
+            <p className="text-sm text-[oklch(var(--text-muted))] font-medium">
+              The facilitator will begin the simulation shortly.
             </p>
           </div>
         </div>
@@ -180,7 +180,7 @@ export default function DashboardPage() {
 
   return (
     <>
-      <DashboardLayout title="Market Node: Active" currentRound={currentRound} totalValue={totalValue} secondsLeft={secondsLeft}>
+      <DashboardLayout title="Market" currentRound={currentRound} totalValue={totalValue} secondsLeft={secondsLeft}>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-[calc(100vh-12rem)]">
           <div className="lg:col-span-8 flex flex-col gap-8 overflow-hidden">
             {/* Portfolio Overview */}
@@ -210,8 +210,8 @@ export default function DashboardPage() {
             <section className="flex-1 bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] p-6 overflow-hidden flex flex-col">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-[10px] uppercase font-bold tracking-[0.3em] text-[oklch(var(--text-muted))]">Global Market Feed</h2>
-                <div className={`text-[9px] font-black uppercase tracking-widest ${isConnected ? 'text-[oklch(var(--status-success))]' : 'text-[oklch(var(--status-error))] animate-pulse'}`}>
-                  {isConnected ? 'NODE: CONNECTED' : 'NODE: RECONNECTING...'}
+                <div className={`text-xs font-bold ${isConnected ? 'text-[oklch(var(--status-success))]' : 'text-[oklch(var(--status-error))] animate-pulse'}`}>
+                  {isConnected ? 'Live' : 'Reconnecting…'}
                 </div>
               </div>
 
@@ -227,17 +227,17 @@ export default function DashboardPage() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <div className="text-sm font-black font-display tracking-tight uppercase italic truncate">{asset.symbol}</div>
-                            <div className="text-[7px] px-1 bg-[oklch(var(--border-subtle))] font-bold rounded uppercase tracking-tighter opacity-60">
+                            <div className="text-[10px] px-1 bg-[oklch(var(--border-subtle)/0.5)] font-bold uppercase tracking-tighter opacity-70">
                               {asset.type}
                             </div>
                           </div>
-                          <div className="text-[8px] font-bold text-[oklch(var(--text-muted))] uppercase truncate">{asset.name}</div>
+                          <div className="text-xs font-medium text-[oklch(var(--text-muted))] truncate">{asset.name}</div>
                         </div>
                         <div className="text-right flex-shrink-0 ml-2">
                           <div className={`text-sm font-black font-mono tabular-nums ${isUp ? 'text-[oklch(var(--status-success))]' : 'text-[oklch(var(--status-error))]'}`}>
                             ${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </div>
-                          <div className={`text-[9px] font-bold flex items-center justify-end gap-1 ${isUp ? 'text-[oklch(var(--status-success))]' : 'text-[oklch(var(--status-error))]'}`}>
+                          <div className={`text-xs font-bold flex items-center justify-end gap-1 ${isUp ? 'text-[oklch(var(--status-success))]' : 'text-[oklch(var(--status-error))]'}`}>
                             {isUp ? '+' : ''}{((currentPrice - prevPrice) / prevPrice * 100).toFixed(2)}%
                           </div>
                         </div>

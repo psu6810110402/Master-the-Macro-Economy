@@ -1,11 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion';
+import { motion, useScroll, useTransform } from 'framer-motion';
 import {
-  ArrowRight, Shield, ShieldCheck, LogIn, TrendingUp,
-  Users, Globe2, Activity, Zap, BarChart3, Fingerprint, Cpu,
-  Bot
+  ArrowRight, Shield, TrendingUp, Users, Activity,
+  Zap, BarChart3, Cpu, Bot, ChevronRight
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@hackanomics/ui';
@@ -13,397 +12,364 @@ import { api } from '@/lib/api';
 import Navbar from '@/components/layout/Navbar';
 import AuthModal from '@/components/auth/AuthModal';
 
-interface User {
-  role: string;
-}
+// ─── DATA ─────────────────────────────────────────────────────────────────
 
-// ─── DATA & CONSTANTS ────────────────────────────────────────────────────
-
-const INTELLIGENCE_REPORTS = [
+const FEATURES = [
   {
-    icon: <Cpu size={20} />,
-    title: "MACRO ENGINE v2.0",
-    desc: "A custom-built deterministic simulation engine modeling r, π, and g to generate realistic price action across 7 different asset classes."
+    icon: <Cpu size={18} />,
+    tag: 'ENGINE',
+    title: 'Macro Simulation',
+    desc: 'A deterministic engine models interest rates, inflation, and GDP growth to generate realistic price action across 7 asset classes every round.',
   },
   {
-    icon: <Bot size={20} />,
-    title: "GEMINI AI ANALYST",
-    desc: "Google Gemini 1.5 Flash batch-analyzes every player's portfolio post-game, generating personalized, harsh-but-fair financial critiques."
+    icon: <Bot size={18} />,
+    tag: 'AI',
+    title: 'Gemini AI Analyst',
+    desc: 'Post-game, Google Gemini 1.5 Flash analyzes your Sharpe Ratio, drawdown, and allocation history — generating a personalized performance critique.',
   },
   {
-    icon: <Zap size={20} />,
-    title: "TACTICAL HUD",
-    desc: "Zero race-conditions. Immersive 60fps TickingNumbers and a strict 3-stage execution timer ensuring 'institutional-grade' game feel."
-  }
+    icon: <Zap size={18} />,
+    tag: 'HUD',
+    title: 'Real-Time Interface',
+    desc: 'Zero race-conditions. Live price tickers, an animated countdown, and WebSocket-driven leaderboard updates keep every second high-stakes.',
+  },
+  {
+    icon: <BarChart3 size={18} />,
+    tag: 'SCORING',
+    title: 'Risk-Adjusted Scoring',
+    desc: 'Profits alone don\'t win. The engine rewards risk-adjusted returns — Sharpe Ratio and max drawdown determine your final ranking.',
+  },
 ];
 
-const SCORING_METRICS = [
-  { label: "SHARPE RATIO", value: "3.42", color: "text-[oklch(var(--status-success))]" },
-  { label: "MAX DRAWDOWN", value: "-4.1%", color: "text-[oklch(var(--status-success))]" },
-  { label: "DIVERSITY INDEX", value: "0.89", color: "text-[oklch(var(--accent-brand))]" },
-  { label: "GEMINI AI GRADE", value: "A-", color: "text-[oklch(var(--status-success))]" },
+const ASSET_CLASSES = ['TECH', 'INDUSTRIAL', 'BONDS', 'GOLD', 'CRYPTO', 'REAL ESTATE', 'CASH'];
+
+const MACRO_TICKER = [
+  { label: 'FED FUNDS RATE', value: '5.25%', delta: '+25bps', up: true },
+  { label: 'CORE CPI', value: '3.1%', delta: '-0.2%', up: false },
+  { label: 'REAL GDP', value: '2.4%', delta: '+0.1%', up: true },
+  { label: 'VIX INDEX', value: '18.4', delta: '-1.2', up: false },
 ];
 
-const MACRO_INDICATORS = [
-  { label: "FED_FUNDS_RATE", value: "5.25%", delta: "+25bps", status: "STABLE" },
-  { label: "CORE_CPI_INDEX", value: "3.1%", delta: "-0.2%", status: "EASING" },
-  { label: "REAL_GDP_NOW", value: "2.4%", delta: "+0.1%", status: "GROWTH" },
-];
-
-const staggerContainer = {
+const stagger = {
   hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: { staggerChildren: 0.1, delayChildren: 0.1 }
-  }
+  show: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
+};
+const fadeUp = {
+  hidden: { opacity: 0, y: 28 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] } },
+};
+const fadeLeft = {
+  hidden: { opacity: 0, x: -28 },
+  show: { opacity: 1, x: 0, transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] } },
+};
+const fadeRight = {
+  hidden: { opacity: 0, x: 28 },
+  show: { opacity: 1, x: 0, transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] } },
 };
 
-const fadeUpItem = {
-  hidden: { opacity: 0, y: 40 },
-  show: { 
-    opacity: 1, 
-    y: 0,
-    transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] as const }
-  }
-};
-
-const fadeLeftItem = {
-  hidden: { opacity: 0, x: -40 },
-  show: { 
-    opacity: 1, 
-    x: 0,
-    transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] as const }
-  }
-};
-
-const fadeRightItem = {
-  hidden: { opacity: 0, x: 40 },
-  show: { 
-    opacity: 1, 
-    x: 0,
-    transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] as const }
-  }
-};
-
-// ─── LANDING PAGE COMPONENT ──────────────────────────────────────────────
+// ─── PAGE ─────────────────────────────────────────────────────────────────
 
 export default function LandingPage() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [activeMetricIndex, setActiveMetricIndex] = useState(0);
-  
+  const [user, setUser] = useState<{ role: string } | null>(null);
   const { scrollY } = useScroll();
-  const heroOpacity = useTransform(scrollY, [0, 400], [1, 0]);
-  const heroScale = useTransform(scrollY, [0, 600], [1, 1.05]);
-  const heroY = useTransform(scrollY, [0, 600], [0, 100]);
+  const heroY = useTransform(scrollY, [0, 600], [0, 80]);
+  const heroOpacity = useTransform(scrollY, [0, 350], [1, 0]);
   const router = useRouter();
 
   useEffect(() => {
-    api.get<User>('auth/me').then(setUser).catch(() => setUser(null));
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setActiveMetricIndex((prev) => (prev + 1) % SCORING_METRICS.length);
-    }, 4000);
-    return () => clearInterval(interval);
+    api.get<{ role: string }>('auth/me').then(setUser).catch(() => setUser(null));
   }, []);
 
   return (
-    <main className="min-h-screen bg-[oklch(var(--bg-main))] text-[oklch(var(--text-primary))] selection:bg-[oklch(var(--accent-brand)/0.3)] font-sans overflow-x-hidden">
-      
+    <main className="min-h-screen bg-[oklch(var(--bg-main))] text-[oklch(var(--text-primary))] overflow-x-hidden font-sans">
+
       <Navbar onAuthClick={() => setIsAuthOpen(true)} />
       <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
 
-      {/* Background FX (Fixed 404/403 Errors) */}
-      <div 
-        className="fixed inset-0 opacity-[0.05] pointer-events-none z-0" 
-        style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E\")" }}
-      />
-      <div className="fixed top-[-10%] left-[-10%] w-[50vw] h-[50vw] bg-[oklch(var(--accent-brand))] opacity-[0.02] blur-[150px] pointer-events-none rounded-full z-0" />
+      {/* Subtle background glow */}
+      <div className="fixed top-0 left-[-20%] w-[60vw] h-[60vw] bg-[oklch(var(--accent-brand)/0.03)] blur-[200px] rounded-full pointer-events-none z-0" />
 
-      {/* ─── SECTION: HERO ─── */}
-      <section className="relative min-h-screen flex flex-col justify-center px-8 pt-20 overflow-hidden">
-         <div className="absolute inset-0 z-0 opacity-10">
-            <div className="absolute top-[20%] left-[10%] w-[40vw] h-[40vw] bg-[oklch(var(--accent-brand))] blur-[150px] rounded-full" />
-            <div 
-              className="absolute inset-0 bg-center [mask-image:radial-gradient(ellipse_at_center,white,transparent_80%)]" 
-              style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath d='M0 40V0h40' stroke='rgba(255,255,255,0.05)' stroke-width='1' fill='none'/%3E%3C/svg%3E\")" }}
-            />
-         </div>
-
-         <motion.div 
-          style={{ opacity: heroOpacity, scale: heroScale, y: heroY }}
-          className="relative z-10 max-w-7xl mx-auto space-y-10"
-         >
-            <div className="inline-flex items-center gap-3 px-3 py-1.5 bg-white/5 border border-white/10 backdrop-blur-md">
-               <Activity size={12} className="text-[oklch(var(--accent-brand))] animate-pulse" />
-               <span className="text-[9px] font-black uppercase tracking-[0.4em] text-white">Hackanomics 2026 Submission</span>
-            </div>
-            
-            <div className="space-y-4">
-              <h1 className="text-[9vw] lg:text-[6.5vw] font-black uppercase leading-[0.85] tracking-tighter italic mix-blend-difference">
-                <span className="block text-[oklch(var(--text-muted))] opacity-30">Survive The</span>
-                <span className="block text-white">System.</span>
-              </h1>
-            </div>
-
-            <div className="max-w-xl space-y-8">
-               <p className="text-base md:text-lg text-[oklch(var(--text-muted))] leading-relaxed font-medium uppercase tracking-tight opacity-70">
-                 An institutional-grade financial simulation. Leverage data, survive market collapses, and outmaneuver macroeconomic warfare across 7 asset classes in real-time.
-               </p>
-               
-               <div className="flex flex-wrap gap-4">
-                  <Button 
-                   onClick={() => setIsAuthOpen(true)}
-                   className="group relative px-8 h-12 bg-white !text-black font-black uppercase tracking-[0.2em] text-[10px] overflow-hidden border-none rounded-none hover:bg-[oklch(var(--accent-brand))] hover:!text-white transition-colors"
-                  >
-                    <span className="relative z-10 flex items-center gap-3">Login / Register <ArrowRight size={12} className="group-hover:translate-x-1 transition-transform" /></span>
-                  </Button>
-                  <Button 
-                   onClick={() => router.push('/#about')}
-                   className="px-8 h-12 bg-transparent border border-white/20 text-white font-black uppercase tracking-[0.2em] text-[9px] hover:bg-white/5 rounded-none"
-                  >
-                    What is this?
-                  </Button>
-               </div>
-            </div>
-         </motion.div>
-      </section>
-
-      {/* ─── SECTION: MACRO TICKER ─── */}
-      <section className="relative z-10 border-y border-[oklch(var(--border-strong)/0.5)] bg-black/40 backdrop-blur-md overflow-hidden">
-        <motion.div 
-          animate={{ x: ['0%', '-50%'] }}
-          transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
-          className="flex whitespace-nowrap divide-x divide-[oklch(var(--border-strong)/0.5)]"
+      {/* ── HERO ── */}
+      <section className="relative min-h-[90vh] flex flex-col justify-center px-6 md:px-12 pt-24 overflow-hidden">
+        <motion.div
+          style={{ opacity: heroOpacity, y: heroY }}
+          className="relative z-10 max-w-6xl mx-auto w-full"
         >
-           {MACRO_INDICATORS.concat(MACRO_INDICATORS, MACRO_INDICATORS, MACRO_INDICATORS).map((metric, i) => (
-             <div key={i} className="flex-shrink-0 px-10 py-5 flex items-center gap-6 group hover:bg-white/5 transition-colors cursor-default">
-               <div className="text-[8px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">{metric.label}</div>
-               <div className="text-lg font-black font-display text-white tabular-nums">{metric.value}</div>
-               <div className="text-[8px] font-black uppercase tracking-widest text-[oklch(var(--status-success))]">{metric.delta}</div>
-             </div>
-           ))}
-        </motion.div>
-      </section>
-
-      {/* ─── SECTION: ABOUT ─── */}
-      <section id="about" className="relative z-10 py-32 px-8 bg-black/20 overflow-hidden">
-        <motion.div 
-          variants={staggerContainer}
-          initial="hidden"
-          whileInView="show"
-          viewport={{ once: true, margin: "-100px" }}
-          className="max-w-4xl mx-auto text-center space-y-10"
-        >
-          <motion.div variants={fadeUpItem}>
-            <Shield className="mx-auto text-[oklch(var(--accent-brand))] w-16 h-16 opacity-50" />
-          </motion.div>
-          <motion.h2 variants={fadeUpItem} className="text-4xl md:text-5xl font-black uppercase tracking-tighter italic">
-            What is <span className="text-[oklch(var(--accent-brand))]">Hackanomics?</span>
-          </motion.h2>
-          <motion.div variants={fadeUpItem} className="space-y-6 text-sm md:text-base text-[oklch(var(--text-muted))] leading-relaxed max-w-2xl mx-auto font-medium">
-            <p>
-              Hackanomics is an <span className="text-white font-bold">institutional-grade financial simulation</span> built for the Hackonomics 2026 competition. It transforms the boring concept of financial literacy into a high-octane, real-time trading experience.
-            </p>
-            <p>
-              Players take on the role of operative fund managers. You must analyze breaking news, inflation data, and interest rates, then allocate capital across 7 asset classes (TECH, INDUSTRIAL, CONSUMER, BONDS, GOLD, CRYPTO, CASH) before a strict timer runs out. 
-            </p>
-            <p>
-              When the 5-round simulation ends, <span className="text-[oklch(var(--status-success))] font-bold">Google Gemini 1.5 Flash</span> analyzes your portfolio's Sharpe Ratio and risk management, delivering a personalized financial critique.
-            </p>
-          </motion.div>
-        </motion.div>
-      </section>
-
-      {/* ─── SECTION: FEATURES (INTELLIGENCE) ─── */}
-      <section id="features" className="relative z-10 py-32 px-8 overflow-hidden">
-        <motion.div 
-          variants={staggerContainer}
-          initial="hidden"
-          whileInView="show"
-          viewport={{ once: true, margin: "-100px" }}
-          className="max-w-7xl mx-auto"
-        >
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 items-center">
-            <motion.div variants={fadeLeftItem} className="lg:col-span-5 space-y-10">
-               <h2 className="text-4xl font-black uppercase tracking-tighter italic leading-[0.85]">
-                 Tactical <br/><span className="text-[oklch(var(--accent-brand))]">Superiority.</span>
-               </h2>
-               <p className="text-xs text-[oklch(var(--text-muted))] leading-relaxed max-w-xs uppercase tracking-wider font-bold opacity-60">
-                 Our proprietary engine simulates global economic cycles using live r-inflation-g variables. Every trade matters. Every second counts.
-               </p>
-               <div className="pt-6 grid grid-cols-2 gap-8 border-t border-[oklch(var(--border-strong))]">
-                  <div>
-                     <div className="text-3xl font-black font-display text-white mb-2">7</div>
-                     <div className="text-[8px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">Distinct Asset Classes</div>
-                  </div>
-                  <div>
-                     <div className="text-3xl font-black font-display text-white mb-2">1∞</div>
-                     <div className="text-[8px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">Gemini AI Combinations</div>
-                  </div>
-               </div>
-            </motion.div>
-
-            <motion.div variants={fadeRightItem} className="lg:col-span-7 grid grid-cols-1 md:grid-cols-2 gap-3">
-               {INTELLIGENCE_REPORTS.map((report, i) => (
-                 <motion.div
-                    key={i}
-                    variants={fadeUpItem}
-                    whileHover={{ scale: 1.02, y: -5, transition: { duration: 0.2 } }}
-                    className="p-8 border border-[oklch(var(--border-strong))] bg-[oklch(var(--bg-secondary)/0.5)] hover:border-[oklch(var(--accent-brand)/0.5)] transition-colors flex flex-col justify-between h-[320px] group cursor-default"
-                 >
-                    <div className="p-3 w-12 h-12 bg-black flex items-center justify-center border border-white/10 text-[oklch(var(--accent-brand))]">
-                      {report.icon}
-                    </div>
-                    <div>
-                       <h3 className="text-xl font-black uppercase tracking-wider mb-2 italic group-hover:text-[oklch(var(--accent-brand))] transition-colors">{report.title}</h3>
-                       <p className="text-xs text-[oklch(var(--text-muted))] leading-relaxed uppercase opacity-60 font-bold">
-                         {report.desc}
-                       </p>
-                    </div>
-                 </motion.div>
-               ))}
-               <motion.div variants={fadeUpItem} className="p-8 border border-dashed border-[oklch(var(--border-strong))] flex items-center justify-center h-[320px]">
-                  <div className="text-center">
-                    <Fingerprint size={32} className="mx-auto mb-4 text-[oklch(var(--accent-brand))] opacity-20" />
-                    <div className="text-[8px] font-black uppercase tracking-[0.3em] text-[oklch(var(--text-muted))]">Awaiting Intel...</div>
-                  </div>
-               </motion.div>
-            </motion.div>
-          </div>
-        </motion.div>
-      </section>
-
-      {/* ─── SECTION: SMOOTH SCORING SHOWCASE ─── */}
-      <section id="scores" className="relative z-10 py-32 px-8 bg-black/40 overflow-hidden">
-        <motion.div 
-          variants={staggerContainer}
-          initial="hidden"
-          whileInView="show"
-          viewport={{ once: true, margin: "-100px" }}
-          className="max-w-7xl mx-auto"
-        >
-          <div className="flex flex-col lg:flex-row gap-16 items-center">
-            
-            <motion.div variants={fadeLeftItem} className="flex-1 w-full relative">
-               <div className="absolute inset-0 bg-[oklch(var(--accent-brand)/0.05)] blur-[120px] rounded-full" />
-                <div className="relative border border-[oklch(var(--border-strong))] bg-[oklch(var(--bg-main))] overflow-hidden shadow-2xl skew-y-[-1deg] p-12 flex flex-col items-center justify-center text-center space-y-6">
-                   <ShieldCheck size={48} className="text-[oklch(var(--status-success))] opacity-20" />
-                   <div className="space-y-2">
-                      <h3 className="text-xl font-black uppercase tracking-tighter italic text-[oklch(var(--status-success))]">Post-Game Debrief via AI</h3>
-                      <p className="text-[10px] text-[oklch(var(--text-muted))] uppercase font-bold tracking-widest leading-relaxed max-w-xs">
-                        Google Gemini 1.5 Flash evaluates your Sharpe Ratio and capital allocation history against peers, issuing a personalized operational grade.
-                      </p>
-                   </div>
-                </div>
-            </motion.div>
-
-            <motion.div variants={fadeRightItem} className="flex-1 space-y-10">
-               <h2 className="text-4xl font-black uppercase tracking-tighter italic leading-[0.85]">
-                 <span className="text-[oklch(var(--status-success))]">Institutional</span> <br/>Scoring.
-               </h2>
-               <p className="text-xs text-[oklch(var(--text-muted))] leading-relaxed max-w-sm uppercase font-bold opacity-60">
-                 Profits are not enough. Our engine evaluates operatives based on risk-adjusted returns and drawdown survival.
-               </p>
-               
-               <div className="grid grid-cols-2 gap-px bg-[oklch(var(--border-strong))] border border-[oklch(var(--border-strong))] overflow-hidden">
-                  {SCORING_METRICS.map((metric, i) => (
-                    <div key={i} className="p-6 bg-[oklch(var(--bg-main))] relative group overflow-hidden hover:bg-white/5 transition-colors">
-                        <div className="text-[8px] font-black uppercase tracking-[0.3em] text-[oklch(var(--text-muted))] mb-2">{metric.label}</div>
-                        <div className={`text-2xl font-black font-display ${metric.color} tabular-nums`}>{metric.value}</div>
-                        {activeMetricIndex === i && (
-                          <motion.div layoutId="active-bg" className="absolute inset-0 bg-white/5 z-0" />
-                        )}
-                    </div>
-                  ))}
-               </div>
-            </motion.div>
-          </div>
-        </motion.div>
-      </section>
-
-      {/* ─── SECTION: CALL TO ACTION ─── */}
-      <section className="relative z-10 py-32 px-8 text-center bg-transparent overflow-hidden">
-         <motion.div 
-            variants={staggerContainer}
+          <motion.div
+            variants={stagger}
             initial="hidden"
-            whileInView="show"
-            viewport={{ once: true, margin: "-100px" }}
-            className="max-w-4xl mx-auto space-y-10"
-         >
-            <motion.h2 variants={fadeUpItem} className="text-5xl md:text-7xl font-black uppercase leading-[0.85] tracking-tighter italic">
-              Ready For <br/><span className="text-white">Deployment?</span>
-            </motion.h2>
-            <motion.p variants={fadeUpItem} className="text-sm text-[oklch(var(--text-muted))] max-w-md mx-auto font-medium uppercase tracking-widest opacity-60">
-              Join the live simulation and secure your tactical advantage.
-            </motion.p>
-            <motion.div variants={fadeUpItem} className="pt-6">
-               <Button 
-                onClick={() => setIsAuthOpen(true)}
-                className="group relative px-12 h-14 bg-white !text-black font-black uppercase tracking-[0.3em] text-[10px] overflow-hidden border-none rounded-none shadow-2xl hover:bg-[oklch(var(--accent-brand))] hover:!text-white transition-all"
-               >
-                 <span className="relative z-10">Login / Register</span>
-               </Button>
+            animate="show"
+            className="max-w-3xl"
+          >
+            {/* Status badge */}
+            <motion.div variants={fadeUp} className="inline-flex items-center gap-2 px-3 py-1.5 border border-[oklch(var(--border-subtle))] bg-[oklch(var(--bg-secondary)/0.6)] mb-8">
+              <Activity size={11} className="text-[oklch(var(--accent-brand))] animate-pulse" />
+              <span className="text-[10px] font-black uppercase tracking-[0.35em] text-[oklch(var(--text-muted))]">
+                Hackanomics 2026
+              </span>
             </motion.div>
-         </motion.div>
+
+            {/* Headline */}
+            <motion.h1 variants={fadeUp} className="text-fluid-h1 font-black leading-[0.9] tracking-tighter mb-6" style={{ fontSize: 'clamp(3rem, 7vw, 5.5rem)' }}>
+              Survive the<br />
+              <span className="text-[oklch(var(--text-secondary))]">Market.</span>
+            </motion.h1>
+
+            {/* Sub-headline */}
+            <motion.p variants={fadeUp} className="text-base md:text-lg text-[oklch(var(--text-muted))] leading-relaxed max-w-lg mb-10" style={{ fontWeight: 450 }}>
+              A real-time macroeconomic trading simulation. Allocate capital across 7 asset classes, survive Black Swan events, and earn an AI-graded performance report.
+            </motion.p>
+
+            {/* CTAs */}
+            <motion.div variants={fadeUp} className="flex flex-wrap gap-3">
+              <Button
+                onClick={() => setIsAuthOpen(true)}
+                className="group h-12 px-8 bg-[oklch(var(--text-primary))] text-[oklch(var(--bg-main))] font-black uppercase tracking-[0.15em] text-xs hover:bg-white transition-colors flex items-center gap-3"
+              >
+                Get Started
+                <ArrowRight size={13} className="group-hover:translate-x-0.5 transition-transform" />
+              </Button>
+              <Button
+                onClick={() => router.push('/#about')}
+                className="h-12 px-8 bg-transparent border border-[oklch(var(--border-subtle))] text-[oklch(var(--text-secondary))] font-bold uppercase tracking-[0.15em] text-xs hover:border-[oklch(var(--border-strong))] hover:bg-[oklch(var(--bg-secondary)/0.5)] transition-all"
+              >
+                Learn More
+              </Button>
+            </motion.div>
+          </motion.div>
+
+          {/* Asset class chips */}
+          <motion.div
+            variants={fadeUp}
+            initial="hidden"
+            animate="show"
+            transition={{ delay: 0.5 }}
+            className="mt-14 flex flex-wrap gap-2"
+          >
+            {ASSET_CLASSES.map((a) => (
+              <span
+                key={a}
+                className="px-3 py-1 border border-[oklch(var(--border-subtle))] text-[10px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]"
+              >
+                {a}
+              </span>
+            ))}
+          </motion.div>
+        </motion.div>
       </section>
 
-      {/* ─── SECTION: ADMIN / FACILITATOR PORTAL ─── */}
-      <section className="relative z-10 py-12 px-8 border-t border-[oklch(var(--border-strong))] bg-[oklch(var(--bg-secondary)/0.3)] overflow-hidden">
-         <motion.div 
-            initial={{ opacity: 0, scale: 0.98 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-            className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-8"
-         >
-            <div className="flex items-center gap-4">
-               <Shield className="text-[oklch(var(--text-muted))]" size={24} />
-               <div className="text-left">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-white">Director & Facilitator Access</div>
-                  <div className="text-[9px] text-[oklch(var(--text-muted))] font-bold uppercase tracking-widest mt-1">
-                    System Administrators and Session Runners only.
-                  </div>
-               </div>
+      {/* ── TICKER BAR ── */}
+      <section className="relative z-10 border-y border-[oklch(var(--border-subtle))] bg-[oklch(var(--bg-secondary)/0.4)] backdrop-blur-sm overflow-hidden">
+        <motion.div
+          animate={{ x: ['0%', '-50%'] }}
+          transition={{ duration: 18, repeat: Infinity, ease: 'linear' }}
+          className="flex whitespace-nowrap"
+        >
+          {[...MACRO_TICKER, ...MACRO_TICKER, ...MACRO_TICKER, ...MACRO_TICKER].map((item, i) => (
+            <div key={i} className="flex-shrink-0 flex items-center gap-4 px-8 py-4 border-r border-[oklch(var(--border-subtle)/0.5)]">
+              <span className="text-[10px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">{item.label}</span>
+              <span className="text-sm font-black tabular-nums">{item.value}</span>
+              <span className={`text-[10px] font-black tabular-nums ${item.up ? 'text-[oklch(var(--accent-up))]' : 'text-[oklch(var(--accent-down))]'}`}>
+                {item.delta}
+              </span>
             </div>
-            
-            <div className="flex gap-4">
-               <Button 
-                onClick={() => router.push('/login')}
-                className="bg-transparent text-white border border-white/20 font-black uppercase tracking-widest text-[9px] px-6 h-10 hover:bg-white hover:text-black transition-all rounded-none hover:scale-105 active:scale-95"
-               >
-                 Sign In
-               </Button>
-               <Button 
-                onClick={() => router.push('/register')}
-                className="bg-transparent text-[oklch(var(--text-muted))] border border-transparent font-black uppercase tracking-widest text-[9px] px-6 h-10 hover:text-white transition-all rounded-none hover:scale-105 active:scale-95"
-               >
-                 Register
-               </Button>
-            </div>
-         </motion.div>
+          ))}
+        </motion.div>
       </section>
 
-      {/* ─── FOOTER ─── */}
-      <footer className="relative z-10 py-12 px-8 border-t border-[oklch(var(--border-strong))] bg-black flex flex-col items-center gap-10">
-         <div className="flex flex-wrap justify-center gap-10 font-black text-[9px] uppercase tracking-[0.4em] text-[oklch(var(--status-success))] opacity-40">
-            <span className="flex items-center gap-2"><ShieldCheck size={12} /> HACKANOMICS_2026_ENTRY</span>
-            <span className="flex items-center gap-2"><Cpu size={12} /> GEMINI_AI_INTEGRATED</span>
-            <span className="flex items-center gap-2"><Globe2 size={12} /> DETERMINISTIC_ENGINE</span>
-         </div>
-         
-         <div className="flex flex-col items-center gap-4">
+      {/* ── ABOUT ── */}
+      <section id="about" className="relative z-10 py-28 px-6 md:px-12">
+        <motion.div
+          variants={stagger}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: '-80px' }}
+          className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-16 items-center"
+        >
+          <motion.div variants={fadeLeft} className="space-y-6">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 bg-[oklch(var(--accent-brand))] text-black flex items-center justify-center font-black text-sm italic skew-x-[-12deg]">H</div>
-              <span className="font-black uppercase tracking-[0.3em] text-[9px]">Hackanomics <span className="opacity-40">Systems</span></span>
+              <Shield size={14} className="text-[oklch(var(--accent-brand))]" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">About</span>
             </div>
-            <div className="text-[8px] font-black uppercase tracking-[0.3em] text-[oklch(var(--text-muted))] text-center">
-              © 2026 Aphichat Jahyo. <br className="md:hidden"/> All Rights Reserved.
+            <h2 className="text-3xl md:text-4xl font-black tracking-tight leading-tight">
+              What is<br />Hackanomics?
+            </h2>
+            <div className="space-y-4 text-[oklch(var(--text-secondary))] text-sm leading-relaxed" style={{ fontWeight: 450 }}>
+              <p>
+                Hackanomics is an <strong className="text-[oklch(var(--text-primary))] font-bold">institutional-grade financial simulation</strong> built for the Hackonomics 2026 competition. It turns financial literacy into a live, high-pressure trading experience.
+              </p>
+              <p>
+                Players act as fund managers — reading breaking macro news, inflation data, and rate movements — then allocating capital across 7 asset classes before the clock runs out.
+              </p>
+              <p>
+                At the end of 5 rounds, <span className="text-[oklch(var(--accent-up))] font-bold">Google Gemini</span> grades your portfolio's risk-adjusted performance with a personalised critique.
+              </p>
             </div>
-         </div>
+          </motion.div>
+
+          <motion.div variants={fadeRight} className="grid grid-cols-2 gap-3">
+            {[
+              { value: '7', label: 'Asset Classes' },
+              { value: '5', label: 'Rounds' },
+              { value: 'AI', label: 'Gemini Feedback' },
+              { value: '∞', label: 'Scenarios' },
+            ].map((stat) => (
+              <div key={stat.label} className="p-6 border border-[oklch(var(--border-subtle))] bg-[oklch(var(--bg-secondary)/0.3)]">
+                <div className="text-4xl font-black tabular-nums tracking-tighter mb-1">{stat.value}</div>
+                <div className="text-xs font-bold uppercase tracking-widest text-[oklch(var(--text-muted))]">{stat.label}</div>
+              </div>
+            ))}
+          </motion.div>
+        </motion.div>
+      </section>
+
+      {/* ── FEATURES ── */}
+      <section id="features" className="relative z-10 py-28 px-6 md:px-12 border-t border-[oklch(var(--border-subtle)/0.5)]">
+        <motion.div
+          variants={stagger}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: '-80px' }}
+          className="max-w-6xl mx-auto"
+        >
+          <motion.div variants={fadeUp} className="mb-12">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-[10px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">Features</span>
+            </div>
+            <h2 className="text-3xl md:text-4xl font-black tracking-tight leading-tight max-w-sm">
+              Built for realism.
+            </h2>
+          </motion.div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-[oklch(var(--border-subtle)/0.5)]">
+            {FEATURES.map((f, i) => (
+              <motion.div
+                key={f.tag}
+                variants={fadeUp}
+                className="bg-[oklch(var(--bg-main))] p-8 group hover:bg-[oklch(var(--bg-secondary)/0.4)] transition-colors"
+              >
+                <div className="flex items-start gap-4">
+                  <div className="w-9 h-9 border border-[oklch(var(--border-subtle))] flex items-center justify-center text-[oklch(var(--accent-brand))] shrink-0 group-hover:border-[oklch(var(--accent-brand)/0.5)] transition-colors">
+                    {f.icon}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-[oklch(var(--accent-brand))]">{f.tag}</span>
+                    </div>
+                    <h3 className="text-base font-black tracking-tight">{f.title}</h3>
+                    <p className="text-sm text-[oklch(var(--text-muted))] leading-relaxed">{f.desc}</p>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+      </section>
+
+      {/* ── HOW IT WORKS ── */}
+      <section id="how" className="relative z-10 py-28 px-6 md:px-12 border-t border-[oklch(var(--border-subtle)/0.5)] bg-[oklch(var(--bg-secondary)/0.2)]">
+        <motion.div
+          variants={stagger}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: '-80px' }}
+          className="max-w-6xl mx-auto"
+        >
+          <motion.div variants={fadeUp} className="mb-12">
+            <span className="text-[10px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">How It Works</span>
+            <h2 className="text-3xl md:text-4xl font-black tracking-tight leading-tight mt-3 max-w-sm">
+              A session in 4 steps.
+            </h2>
+          </motion.div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[
+              { n: '01', title: 'Join Session', body: 'Facilitator shares a 6-character code. Enter it in the lobby to join the live simulation.' },
+              { n: '02', title: 'Read the News', body: 'Each round opens with a Breaking News event — macro shocks, rate changes, or Black Swan events.' },
+              { n: '03', title: 'Allocate Capital', body: 'Drag sliders to allocate your portfolio across 7 asset classes. Lock in before the timer hits zero.' },
+              { n: '04', title: 'Get Your Grade', body: 'After 5 rounds, Gemini AI evaluates your risk-adjusted return and delivers a personalised critique.' },
+            ].map((step) => (
+              <motion.div key={step.n} variants={fadeUp} className="border-t-2 border-[oklch(var(--border-subtle))] pt-5">
+                <div className="text-3xl font-black tabular-nums text-[oklch(var(--border-strong))] mb-4">{step.n}</div>
+                <h3 className="text-sm font-black uppercase tracking-wide mb-2">{step.title}</h3>
+                <p className="text-sm text-[oklch(var(--text-muted))] leading-relaxed">{step.body}</p>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+      </section>
+
+      {/* ── CTA ── */}
+      <section className="relative z-10 py-28 px-6 md:px-12 border-t border-[oklch(var(--border-subtle)/0.5)]">
+        <motion.div
+          variants={stagger}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: '-80px' }}
+          className="max-w-6xl mx-auto flex flex-col lg:flex-row items-start lg:items-center justify-between gap-10"
+        >
+          <motion.div variants={fadeLeft} className="space-y-4">
+            <h2 className="text-3xl md:text-5xl font-black tracking-tight leading-tight">
+              Ready to trade?
+            </h2>
+            <p className="text-[oklch(var(--text-muted))] text-sm max-w-md leading-relaxed">
+              Create an account and join the next live simulation session.
+            </p>
+          </motion.div>
+
+          <motion.div variants={fadeRight} className="flex flex-wrap gap-3 shrink-0">
+            <Button
+              onClick={() => setIsAuthOpen(true)}
+              className="group h-12 px-10 bg-[oklch(var(--text-primary))] text-[oklch(var(--bg-main))] font-black uppercase tracking-[0.15em] text-xs hover:bg-white transition-colors flex items-center gap-3"
+            >
+              Sign Up Free
+              <ArrowRight size={13} className="group-hover:translate-x-0.5 transition-transform" />
+            </Button>
+          </motion.div>
+        </motion.div>
+      </section>
+
+      {/* ── STAFF PORTAL ── */}
+      <section className="relative z-10 py-8 px-6 md:px-12 border-t border-[oklch(var(--border-subtle))] bg-[oklch(var(--bg-secondary)/0.2)]">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Shield size={16} className="text-[oklch(var(--text-muted))]" />
+            <div>
+              <div className="text-sm font-bold text-[oklch(var(--text-secondary))]">Staff Access</div>
+              <div className="text-xs text-[oklch(var(--text-muted))]">Facilitators and Administrators only.</div>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => router.push('/login')}
+              className="h-9 px-5 text-xs font-bold uppercase tracking-widest border border-[oklch(var(--border-subtle))] text-[oklch(var(--text-secondary))] hover:border-[oklch(var(--border-strong))] hover:bg-[oklch(var(--bg-secondary)/0.5)] transition-all"
+            >
+              Sign In
+            </button>
+            <button
+              onClick={() => router.push('/register')}
+              className="h-9 px-5 text-xs font-bold uppercase tracking-widest text-[oklch(var(--text-muted))] hover:text-[oklch(var(--text-secondary))] transition-colors"
+            >
+              Register
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* ── FOOTER ── */}
+      <footer className="relative z-10 border-t border-[oklch(var(--border-subtle))] bg-[oklch(var(--bg-secondary)/0.1)]">
+        <div className="max-w-6xl mx-auto px-6 md:px-12 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-6 h-6 bg-[oklch(var(--accent-brand))] flex items-center justify-center font-black text-xs italic text-black">H</div>
+            <span className="font-black text-xs uppercase tracking-[0.2em]">Hackanomics</span>
+          </div>
+          <div className="text-[11px] text-[oklch(var(--text-muted))] font-medium">
+            © 2026 Aphichat Jahyo. All rights reserved.
+          </div>
+        </div>
       </footer>
+
     </main>
   );
 }

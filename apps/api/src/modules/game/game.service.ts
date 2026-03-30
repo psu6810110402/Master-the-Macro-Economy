@@ -35,6 +35,7 @@ export interface RoundPayload {
 export class GameService {
   private engines = new Map<string, GameEngine>();
   private enginePromises = new Map<string, Promise<GameEngine>>();
+  private nextRoundInflight = new Map<string, Promise<RoundPayload>>();
   private readonly logger = new Logger(GameService.name);
 
   constructor(
@@ -160,6 +161,10 @@ export class GameService {
     });
 
     const engine = await this.getOrCreateEngine(sessionId);
+    // move to first round when starting (engine may initialize on round 0)
+    if (engine.getState().currentRound === 0) {
+      engine.nextRound();
+    }
     engine.updateStatus('ACTIVE');
     
     await prisma.gameSession.update({
@@ -219,12 +224,20 @@ export class GameService {
   async nextRound(sessionId: string): Promise<RoundPayload> {
     const engine = await this.getOrCreateEngine(sessionId);
     const state = engine.getState();
-    const currentRoundNumber = state.currentRound;
+
+    this.logger.log(`nextRound called for session ${sessionId}: engineRound=${state.currentRound}, status=${state.status}`);
 
     const session = await prisma.gameSession.findUnique({ where: { id: sessionId } });
     if (!session) throw new NotFoundException('Session not found');
 
+    // Use DB roundNumber as source of truth — engine.currentRound may be 0
+    // after a server restart or when startSession was called via REST (not WebSocket).
+    const currentRoundNumber = session.roundNumber || state.currentRound;
+
+    this.logger.log(`Session ${sessionId} nextRound: currentRound=${currentRoundNumber}, totalRounds=${session.totalRounds}`);
+
     if (currentRoundNumber >= session.totalRounds) {
+      this.logger.log(`Session ${sessionId} reached max rounds (${session.totalRounds}). Ending session.`);
       return this.endSession(sessionId);
     }
 
@@ -254,14 +267,25 @@ export class GameService {
     await prisma.macroState.upsert({
       where: { sessionId_roundNumber: { sessionId, roundNumber: nextRoundNumber } },
       create: nextMacroData,
-      update: {},
+      update: nextMacroData, // IMPORTANT: Update if it exists to stay in sync
     });
 
     // Close current round (snapshot prices), advance round counter
+    // Use updateMany with a fallback to avoid "record not found" race condition
     await prisma.$transaction(async (tx: any) => {
-      await tx.round.update({
+      // Ensure current round record exists (create if missing, update if exists)
+      await tx.round.upsert({
         where: { sessionId_roundNumber: { sessionId, roundNumber: currentRoundNumber } },
-        data: { endedAt: new Date(), priceSnapshot: JSON.stringify(state.assetPrices) },
+        create: {
+          sessionId,
+          roundNumber: currentRoundNumber,
+          priceSnapshot: JSON.stringify(state.assetPrices),
+          endedAt: new Date(),
+        },
+        update: { 
+          endedAt: new Date(), 
+          priceSnapshot: JSON.stringify(state.assetPrices) 
+        },
       });
 
       await tx.gameSession.update({
@@ -271,6 +295,7 @@ export class GameService {
     });
 
     // Advance engine to next round and calculate new market prices
+    // Note: engine.nextRound() automatically resets readyPlayers to []
     engine.nextRound(); 
     const newPrices = await this.marketService.updateMarket(engine, {});
     engine.updateStatus('NEWS_BREAK');
@@ -292,6 +317,11 @@ export class GameService {
     const nextMacro = await prisma.macroState.findUnique({
       where: { sessionId_roundNumber: { sessionId, roundNumber: nextRoundNumber } },
     });
+
+    if (!nextMacro) {
+      this.logger.error(`Failed to find nextMacro for session ${sessionId} round ${nextRoundNumber}`);
+      throw new Error('Next round macro state not found');
+    }
 
     // Fix #22: Black Swan Recovery Logic
     let processedPrices = newPrices;
@@ -396,7 +426,12 @@ export class GameService {
     await this.recalculatePortfolios(sessionId, state.assetPrices);
 
     // Calculate scores for all players
-    const scores = await this.calculateSessionScores(sessionId);
+    let scores = [];
+    try {
+      scores = await this.calculateSessionScores(sessionId);
+    } catch (err) {
+      this.logger.error(`Failed to calculate scores for session ${sessionId}`, err);
+    }
 
     engine.updateStatus('COMPLETED');
 

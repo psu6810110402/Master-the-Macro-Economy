@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  ShieldCheck, FileText, Lock, Eye, AlertTriangle, 
-  Search, ShieldAlert, Activity, Database, Settings, 
-  Users, Server, Terminal, CheckCircle2, XCircle
+import { motion } from 'framer-motion';
+import {
+  ShieldCheck, Lock,
+  Search, ShieldAlert, Activity,
+  Users, Server, CheckCircle2, XCircle
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@hackanomics/ui';
@@ -121,17 +121,22 @@ export default function AdminDashboard() {
   const paginatedLogs = filteredLogs.slice((logPage - 1) * LOGS_PER_PAGE, logPage * LOGS_PER_PAGE);
   const totalPages = Math.ceil(filteredLogs.length / LOGS_PER_PAGE);
 
-  if (isLoading) return <div className="min-h-screen bg-black flex items-center justify-center text-white italic font-black uppercase tracking-[0.5em]">Authenticating Level 3...</div>;
+  if (isLoading) return (
+    <div className="min-h-screen bg-[oklch(var(--bg-main))] flex flex-col items-center justify-center gap-4 text-[oklch(var(--text-muted))]">
+      <div className="w-8 h-8 border-2 border-t-[oklch(var(--accent-brand))] border-[oklch(var(--border-subtle))] rounded-full animate-spin" />
+      <span className="text-xs font-bold uppercase tracking-widest">Loading…</span>
+    </div>
+  );
 
   const renderSidebar = () => (
     <aside className="w-64 border-r border-[oklch(var(--border-subtle))] bg-[oklch(var(--bg-secondary))] flex flex-col h-[calc(100vh-80px)]">
       <div className="p-6 space-y-2">
-        <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-[oklch(var(--text-muted))] mb-4">Command Topics</h3>
+        <h3 className="text-[10px] font-bold uppercase tracking-widest text-[oklch(var(--text-muted))] mb-4">Navigation</h3>
         
         {([
           { id: 'OVERVIEW', label: 'System Overview', icon: Activity },
           { id: 'USERS', label: 'User Directory', icon: Users },
-          { id: 'AUDIT', label: 'Behavioral Intelligence', icon: Search },
+          { id: 'AUDIT', label: 'Audit Logs', icon: Search },
           { id: 'DIAGNOSTICS', label: 'Integration Diagnostics', icon: Server }
         ] as const).map(tab => (
           <button
@@ -149,7 +154,7 @@ export default function AdminDashboard() {
         ))}
       </div>
       <div className="mt-auto p-6 border-t border-[oklch(var(--border-subtle))]">
-        <p className="text-[8px] uppercase tracking-widest text-[oklch(var(--text-muted))]">PDPA Retention policies currently active.<br/>Automated Player data wiping enabled.</p>
+        <p className="text-[10px] text-[oklch(var(--text-muted))] leading-relaxed">PDPA retention policies active. Automated data sweep enabled.</p>
       </div>
     </aside>
   );
@@ -162,10 +167,10 @@ export default function AdminDashboard() {
            <div className="w-12 h-12 bg-white text-black flex items-center justify-center font-black text-2xl italic">A</div>
            <div>
              <h1 className="text-xl font-black uppercase tracking-tighter">Director Terminal</h1>
-             <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[oklch(var(--text-muted))]">Level 3 Complete Override</span>
+             <span className="text-[10px] font-bold uppercase tracking-widest text-[oklch(var(--text-muted))]">Admin Dashboard</span>
            </div>
         </div>
-        <Button onClick={handleLogout} className="bg-[oklch(var(--bg-secondary))] text-[10px] uppercase font-black tracking-widest px-6 hover:bg-[oklch(var(--status-error))] hover:text-white transition-colors">Terminate Session (Logout)</Button>
+        <Button onClick={handleLogout} className="bg-[oklch(var(--bg-secondary))] text-[10px] uppercase font-black tracking-widest px-6 hover:bg-[oklch(var(--status-error))] hover:text-white transition-colors">Sign Out</Button>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
@@ -190,7 +195,7 @@ export default function AdminDashboard() {
                       </div>
                       <div>
                         <div className="text-xl font-black tracking-tighter">{stat.value}</div>
-                        <div className="text-[8px] font-bold uppercase tracking-widest text-[oklch(var(--text-muted))] mt-1">{stat.trend}</div>
+                        <div className="text-[10px] font-medium text-[oklch(var(--text-muted))] mt-1">{stat.trend}</div>
                       </div>
                     </div>
                   ))}
@@ -198,7 +203,7 @@ export default function AdminDashboard() {
 
                 <div className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] p-6">
                   <h2 className="text-xs font-black uppercase tracking-[0.3em] mb-6 flex items-center gap-2">
-                    <Activity size={14} className="text-[oklch(var(--accent-brand))]" /> Live Theatres
+                    <Activity size={14} className="text-[oklch(var(--accent-brand))]" /> Active Sessions
                   </h2>
                   <div className="space-y-4">
                     {activeSessions.filter(s => s.status !== 'FINISHED').length === 0 ? (
@@ -208,10 +213,10 @@ export default function AdminDashboard() {
                         <div key={session.id} className="flex justify-between items-center p-4 border border-[oklch(var(--border-subtle))]">
                           <div>
                             <div className="text-xs font-black uppercase tracking-widest">{session.name} [{session.code}]</div>
-                            <div className="text-[10px] text-[oklch(var(--text-muted))] mt-1">{session.players?.length || 0} Operatives attached</div>
+                            <div className="text-[10px] text-[oklch(var(--text-muted))] mt-1">{session.players?.length || 0} players joined</div>
                           </div>
                           <button onClick={() => handleTerminate(session.id)} className="px-4 py-2 bg-[#4A1010]/40 text-[#ff4444] hover:bg-[#ff4444] hover:text-white border border-[#ff4444]/50 text-[10px] font-black uppercase tracking-widest transition-colors">
-                            Emergency Terminate
+                            Force End
                           </button>
                         </div>
                       ))
@@ -232,14 +237,14 @@ export default function AdminDashboard() {
                           <div className="text-sm font-black tracking-widest uppercase">{staff.displayName}</div>
                           <div className="text-[10px] text-[oklch(var(--text-muted))]">{staff.email}</div>
                         </div>
-                        <span className={`px-2 py-1 text-[8px] font-black uppercase tracking-widest border ${staff.role === 'ADMIN' ? 'border-[oklch(var(--status-error))] text-[oklch(var(--status-error))]' : 'border-[oklch(var(--accent-brand))] text-[oklch(var(--accent-brand))]'}`}>{staff.role}</span>
+                        <span className={`px-2 py-1 text-[10px] font-bold uppercase tracking-widest border ${staff.role === 'ADMIN' ? 'border-[oklch(var(--status-error))] text-[oklch(var(--status-error))]' : 'border-[oklch(var(--accent-brand))] text-[oklch(var(--accent-brand))]'}`}>{staff.role}</span>
                       </div>
                     ))}
                   </div>
                 </section>
 
                 <section>
-                  <h2 className="text-xs font-black uppercase tracking-[0.3em] mb-6 text-[oklch(var(--text-muted))] border-b border-[oklch(var(--border-subtle))] pb-2 mt-12">Ephemeral Player Directories (By Session)</h2>
+                  <h2 className="text-xs font-black uppercase tracking-[0.3em] mb-6 text-[oklch(var(--text-muted))] border-b border-[oklch(var(--border-subtle))] pb-2 mt-12">Players by Session</h2>
                   <div className="space-y-6">
                     {usersData.sessions.map((session: any) => (
                       <div key={session.id} className="border border-[oklch(var(--border-subtle))]">
@@ -248,13 +253,14 @@ export default function AdminDashboard() {
                           <span className="text-[10px] uppercase font-bold text-[oklch(var(--text-muted))]">Status: {session.status}</span>
                         </div>
                         <div className="p-4">
-                          {session.players.length === 0 ? <p className="text-[10px] font-bold text-[oklch(var(--text-muted))] italic">No operatives deployed.</p> : (
+                          {session.players.length === 0 ? <p className="text-[10px] font-medium text-[oklch(var(--text-muted))]">No players in this session.</p> : (
                             <table className="w-full text-left text-[10px] uppercase tracking-widest">
                               <thead>
                                 <tr className="text-[oklch(var(--text-muted))] border-b border-white/5">
-                                  <th className="pb-2">Operative ID</th>
+                                  <th className="pb-2">Player</th>
                                   <th className="pb-2">Email</th>
                                   <th className="pb-2 text-right">Portfolio Value</th>
+                                  <th className="pb-2 text-right">Role</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -263,6 +269,21 @@ export default function AdminDashboard() {
                                     <td className="py-2">{p.user?.displayName || 'Unknown'}</td>
                                     <td className="py-2 opacity-50">{p.user?.email}</td>
                                     <td className="py-2 text-right font-mono">${(p.portfolio?.totalValue || 0).toLocaleString()}</td>
+                                    <td className="py-2 text-right">
+                                      <select
+                                        defaultValue={p.user?.role || 'PLAYER'}
+                                        onChange={async (e) => {
+                                          const newRole = e.target.value as 'PLAYER' | 'FACILITATOR' | 'ADMIN';
+                                          await api.patch(`admin/users/${p.user?.id}/role`, { role: newRole });
+                                          fetchData();
+                                        }}
+                                        className="bg-[oklch(var(--bg-main))] border border-[oklch(var(--border-subtle))] text-[10px] px-2 py-1 uppercase font-bold focus:outline-none focus:border-[oklch(var(--accent-brand))]"
+                                      >
+                                        <option value="PLAYER">Player</option>
+                                        <option value="FACILITATOR">Facilitator</option>
+                                        <option value="ADMIN">Admin</option>
+                                      </select>
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -280,7 +301,7 @@ export default function AdminDashboard() {
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-xs font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                     <Search size={14} className="text-[oklch(var(--accent-brand))]" /> Master Behavior Log
+                     <Search size={14} className="text-[oklch(var(--accent-brand))]" /> Audit Log
                   </h2>
                   <div className="flex items-center gap-4">
                     <Button 
@@ -309,17 +330,17 @@ export default function AdminDashboard() {
                 <div className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] overflow-hidden">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="bg-[oklch(var(--bg-main))] border-b border-[oklch(var(--border-subtle))] text-[9px] font-black uppercase tracking-[0.2em] text-[oklch(var(--text-muted))]">
+                      <tr className="bg-[oklch(var(--bg-main))] border-b border-[oklch(var(--border-subtle))] text-[10px] font-bold uppercase tracking-widest text-[oklch(var(--text-muted))]">
                         <th className="px-6 py-4">Timestamp</th>
-                        <th className="px-6 py-4">Action Event</th>
-                        <th className="px-6 py-4">Origin Actor</th>
-                        <th className="px-6 py-4">Resource Target</th>
+                        <th className="px-6 py-4">Action</th>
+                        <th className="px-6 py-4">Actor</th>
+                        <th className="px-6 py-4">Resource</th>
                       </tr>
                     </thead>
-                    <tbody className="text-[10px] font-bold font-mono">
+                    <tbody className="text-xs font-medium">
                       {paginatedLogs.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className="px-6 py-12 text-center opacity-20 uppercase tracking-widest">No matching intel found</td>
+                          <td colSpan={4} className="px-6 py-12 text-center text-xs text-[oklch(var(--text-muted))]">No matching logs found</td>
                         </tr>
                       ) : (
                         paginatedLogs.map((log) => (
@@ -336,25 +357,13 @@ export default function AdminDashboard() {
                   
                   {totalPages > 1 && (
                     <div className="px-6 py-4 bg-[oklch(var(--bg-main))] border-t border-[oklch(var(--border-subtle))] flex items-center justify-between">
-                      <div className="text-[9px] font-black uppercase tracking-widest text-[oklch(var(--text-muted))]">
-                        Showing {(logPage-1)*LOGS_PER_PAGE + 1} to {Math.min(logPage*LOGS_PER_PAGE, filteredLogs.length)} of {filteredLogs.length} events
+                      <div className="text-xs text-[oklch(var(--text-muted))]">
+                        {(logPage-1)*LOGS_PER_PAGE + 1}–{Math.min(logPage*LOGS_PER_PAGE, filteredLogs.length)} of {filteredLogs.length}
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button 
-                          disabled={logPage === 1}
-                          onClick={() => setLogPage(p => Math.max(1, p - 1))}
-                          className="px-3 h-8 text-[9px] uppercase font-black"
-                        >
-                          Prev
-                        </Button>
-                        <span className="text-[10px] font-black px-4">{logPage} / {totalPages}</span>
-                        <Button 
-                          disabled={logPage === totalPages}
-                          onClick={() => setLogPage(p => Math.min(totalPages, p + 1))}
-                          className="px-3 h-8 text-[9px] uppercase font-black"
-                        >
-                          Next
-                        </Button>
+                        <Button disabled={logPage === 1} onClick={() => setLogPage(p => Math.max(1, p - 1))} className="px-3 h-8 text-xs font-bold uppercase">Prev</Button>
+                        <span className="text-xs font-bold px-2">{logPage} / {totalPages}</span>
+                        <Button disabled={logPage === totalPages} onClick={() => setLogPage(p => Math.min(totalPages, p + 1))} className="px-3 h-8 text-xs font-bold uppercase">Next</Button>
                       </div>
                     </div>
                   )}
@@ -388,7 +397,7 @@ export default function AdminDashboard() {
                          disabled={isPinging}
                          className="h-14 bg-white text-black text-xs font-black uppercase tracking-[0.2em] px-12 italic"
                        >
-                         {isPinging ? 'Transmitting Subspace Ping...' : 'Execute Diagnostic Ping Sequence'}
+                         {isPinging ? 'Pinging…' : 'Test Connection'}
                        </Button>
 
                        {pingResult && (
@@ -399,7 +408,7 @@ export default function AdminDashboard() {
                               </div>
                               <div className="space-y-2">
                                 <h4 className={`text-sm font-black uppercase tracking-widest ${pingResult.status === 'SUCCESS' ? 'text-[oklch(var(--status-success))]' : 'text-[oklch(var(--status-error))]'}`}>
-                                  {pingResult.status === 'SUCCESS' ? 'HANDSHAKE ESTABLISHED' : 'CONNECTION REFUSED'}
+                                  {pingResult.status === 'SUCCESS' ? 'Connected' : 'Connection failed'}
                                 </h4>
                                 <p className="text-xs font-mono font-medium opacity-80">{pingResult.message}</p>
                                 <div className="mt-4 pt-4 border-t border-white/10 text-[10px] font-mono text-[oklch(var(--text-muted))]">

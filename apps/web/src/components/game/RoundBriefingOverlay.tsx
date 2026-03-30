@@ -2,13 +2,13 @@
 
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, Crosshair } from 'lucide-react';
 
 interface RoundBriefingOverlayProps {
   isOpen: boolean;
   round: number;
   totalRounds: number;
   scenarioTitle?: string;
+  rankings?: any[];
   onComplete?: () => void;
   autoAdvanceSeconds?: number;
 }
@@ -23,6 +23,7 @@ export default function RoundBriefingOverlay({
   round,
   totalRounds,
   scenarioTitle = 'MARKET BRIEFING',
+  rankings = [],
   onComplete,
   autoAdvanceSeconds = 5,
 }: RoundBriefingOverlayProps) {
@@ -61,19 +62,55 @@ export default function RoundBriefingOverlay({
           {/* Scanline texture */}
           <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.15)_50%)] bg-[length:100%_4px] opacity-20" />
 
-          <div className="relative text-center max-w-2xl px-8">
-            {/* Round indicator */}
+          <div className="relative w-full max-w-5xl px-8 flex justify-center items-center">
+            
+            {/* F1-style Mini Podium Flash (Left Side) */}
+            {rankings && rankings.length > 0 && round > 1 && (
+              <motion.div
+                initial={{ x: -100, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                transition={{ delay: 0.6, type: 'spring', damping: 20 }}
+                className="hidden md:block absolute left-8 top-1/2 -translate-y-1/2 text-left bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] p-6 shadow-2xl z-20"
+              >
+                <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-[oklch(var(--accent-brand))] mb-6 flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-[oklch(var(--accent-brand))] rounded-full animate-pulse" />
+                  Live Leaders
+                </div>
+                <div className="space-y-4">
+                  {rankings.slice(0, 3).map((r, idx) => (
+                    <motion.div 
+                      key={r.userId}
+                      initial={{ x: -20, opacity: 0 }}
+                      animate={{ x: 0, opacity: 1 }}
+                      transition={{ delay: 0.8 + (idx * 0.15) }}
+                      className="flex items-center gap-4 w-48"
+                    >
+                      <div className={`font-black italic text-2xl w-8 text-center ${idx === 0 ? 'text-[#FFD700] drop-shadow-[0_0_8px_rgba(255,215,0,0.5)]' : idx === 1 ? 'text-[#C0C0C0]' : 'text-[#CD7F32]'}`}>
+                        P{idx + 1}
+                      </div>
+                      <div className="flex-1 overflow-hidden">
+                        <div className="text-[11px] uppercase font-bold tracking-tight truncate text-[oklch(var(--text-primary))]">{r.username || `${r.firstName} ${r.lastName}`}</div>
+                        <div className="text-[10px] font-mono tabular-nums text-[oklch(var(--text-muted))]">${r.totalValue?.toLocaleString()}</div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
+            <div className="relative text-center max-w-2xl w-full z-10">
+              {/* Round indicator */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
               className="flex items-center justify-center gap-3 mb-6"
             >
-              <Crosshair size={14} className="text-[oklch(var(--accent-brand))]" />
-              <span className="text-[10px] font-black uppercase tracking-[0.5em] text-[oklch(var(--accent-brand))]">
-                Incoming Transmission
+              <div className="w-4 h-px bg-[oklch(var(--accent-brand))]" />
+              <span className="text-[10px] font-bold uppercase tracking-[0.4em] text-[oklch(var(--accent-brand))]">
+                Round Briefing
               </span>
-              <Crosshair size={14} className="text-[oklch(var(--accent-brand))]" />
+              <div className="w-4 h-px bg-[oklch(var(--accent-brand))]" />
             </motion.div>
 
             {/* Round number — the hero element */}
@@ -127,6 +164,7 @@ export default function RoundBriefingOverlay({
                 Skip Briefing →
               </button>
             </motion.div>
+          </div>
           </div>
         </motion.div>
       )}
