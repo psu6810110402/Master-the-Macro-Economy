@@ -21,7 +21,8 @@ import { GAME_CONFIG } from './game.constants';
 
 @WebSocketGateway({
   cors: {
-    origin: '*', // In production, restrict this
+    origin: process.env.SOCKET_CORS_ORIGIN?.split(',') ?? ['http://localhost:3000'],
+    credentials: true,
   },
 })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit {
@@ -48,13 +49,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
   }
 
   onModuleInit() {
-    // Fix #21: Inactivity sweeping (runs every minute)
-    setInterval(() => this.sweepInactivePlayers(), 60000);
+    setInterval(() => this.sweepInactivePlayers(), GAME_CONFIG.INACTIVITY_CHECK_INTERVAL_MS);
   }
 
   private async sweepInactivePlayers() {
     const now = Date.now();
-    const threshold = 5 * 60 * 1000; // 5 minutes
+    const threshold = GAME_CONFIG.INACTIVITY_THRESHOLD_MS;
 
     for (const [clientKey, timestamp] of this.lastSeen.entries()) {
       if (now - timestamp > threshold) {

@@ -331,6 +331,21 @@ export class GameService {
   }
 
   async nextRound(sessionId: string): Promise<RoundPayload> {
+    // In-flight lock: deduplicate concurrent calls (e.g. timer end + facilitator click)
+    if (this.nextRoundInflight.has(sessionId)) {
+      this.logger.warn(`nextRound already in-flight for ${sessionId}, deduplicating.`);
+      return this.nextRoundInflight.get(sessionId)!;
+    }
+    const promise = this._nextRoundCore(sessionId);
+    this.nextRoundInflight.set(sessionId, promise);
+    try {
+      return await promise;
+    } finally {
+      this.nextRoundInflight.delete(sessionId);
+    }
+  }
+
+  private async _nextRoundCore(sessionId: string): Promise<RoundPayload> {
     const engine = await this.getOrCreateEngine(sessionId);
     const state = engine.getState();
 
@@ -492,7 +507,7 @@ export class GameService {
         blackSwanEvent: nextMacro?.blackSwanEvent,
       },
       round: nextRoundNumber,
-      timer: 180,
+      timer: GAME_CONFIG.DEFAULT_SESSION_DURATION,
       assetPrices: processedPrices,
     };
   }
@@ -521,7 +536,7 @@ export class GameService {
         where: { id: portfolio.id },
         data: {
           totalValue: total,
-          returnPct: ((total - 100000) / 100000) * 100,
+          returnPct: ((total - GAME_CONFIG.INITIAL_CASH_BALANCE) / GAME_CONFIG.INITIAL_CASH_BALANCE) * 100,
         },
       });
     }
@@ -564,7 +579,7 @@ export class GameService {
     // Get macro for the final payload
     const session = await prisma.gameSession.findUnique({ where: { id: sessionId } });
     const macro = await prisma.macroState.findUnique({
-      where: { sessionId_roundNumber: { sessionId, roundNumber: session?.roundNumber || session?.totalRounds || 5 } },
+      where: { sessionId_roundNumber: { sessionId, roundNumber: session?.roundNumber || session?.totalRounds || GAME_CONFIG.FORMATS.STANDARD.rounds } },
     });
 
     return {
@@ -626,26 +641,23 @@ export class GameService {
         holdingsMap[h.asset.symbol] = Number(h.quantity) * livePrice;
       }
 
-      const totalValue = Number(portfolio.totalValue || 100000);
-      const initialValue = 100000;
+      const totalValue = Number(portfolio.totalValue || GAME_CONFIG.INITIAL_CASH_BALANCE);
+      const initialValue = GAME_CONFIG.INITIAL_CASH_BALANCE;
       const returnPct = (totalValue - initialValue) / initialValue;
 
       // Get per-round portfolio values for this player
       const playerRecords = allTradeRecords
         .filter((r: any) => r.playerId === userId)
         .sort((a: any, b: any) => a.round - b.round);
-      
+
       const portfolioValues = [initialValue];
       for (const r of playerRecords) {
-        // We capture total value at start of round > 1 (which effectively is the end of the previous round)
         if (r.round > 1) {
           portfolioValues.push(Number(r.totalValue));
         }
       }
-      portfolioValues.push(totalValue); // Append exact final end-of-round total value
+      portfolioValues.push(totalValue);
 
-      
-      // Calculate per-round returns for Sharpe
       const returns: number[] = [];
       for (let i = 1; i < portfolioValues.length; i++) {
         returns.push((portfolioValues[i] - portfolioValues[i - 1]) / portfolioValues[i - 1]);
@@ -659,7 +671,6 @@ export class GameService {
       const components = { sharpeRatio: sharpe, maxDrawdown, assetDiversity: diversity, blackSwanSurvival };
       const finalScore = this.scoringService.calculateFinalScore(components);
 
-      // Calculate grades per component
       const sharpeScore = Math.min(400, Math.max(0, sharpe * 100));
       const drawdownScore = Math.min(200, Math.max(0, (1 - maxDrawdown) * 200));
       const diversityScore = Math.min(200, Math.max(0, diversity * 200));
@@ -670,7 +681,6 @@ export class GameService {
       const gradeRisk = this.scoringService.calculateGrade(drawdownScore, 200);
       const gradeSurvival = this.scoringService.calculateGrade(survivalScore, 200);
 
-      // Persist to DB
       await prisma.score.upsert({
         where: { sessionId_userId: { sessionId, userId } },
         create: {
@@ -688,11 +698,11 @@ export class GameService {
 
       scores.push({
         userId,
-        displayName: portfolio.sessionPlayer?.user?.firstName 
+        displayName: portfolio.sessionPlayer?.user?.firstName
           ? `${portfolio.sessionPlayer.user.firstName} ${portfolio.sessionPlayer.user.lastName}`
           : (portfolio.sessionPlayer?.user?.displayName || 'Unknown'),
         totalValue,
-        returnPct: Math.round(returnPct * 10000) / 100, // as %
+        returnPct: Math.round(returnPct * 10000) / 100,
         score: finalScore,
         diversity: Math.round(diversity * 100),
         gradeReturn, gradeDiversity, gradeRisk, gradeSurvival,
@@ -700,69 +710,87 @@ export class GameService {
 
       playerSummaries[userId] = `Player ID: ${userId}
 Name: ${portfolio.sessionPlayer?.user?.displayName || 'Unknown'}
-Start Cash: $100000
+Start Cash: $${GAME_CONFIG.INITIAL_CASH_BALANCE}
 Final Value: $${totalValue}
-Return: ${returnPct * 100}%
-Final Allocation: ${allTradeRecords.reverse().find((r: any) => r.playerId === userId)?.portfolio || "100% CASH"}`;
+Return: ${(returnPct * 100).toFixed(2)}%
+Final Allocation: ${allTradeRecords.slice().reverse().find((r: any) => r.playerId === userId)?.portfolio || "100% CASH"}`;
     }
 
-    // Fix #4: Gemini Batch Call
+    const ranked = scores
+      .sort((a: any, b: any) => b.score - a.score)
+      .map((s: any, i: number) => ({ ...s, rank: i + 1 }));
+
+    // Fire-and-forget: Gemini analysis runs in background, pushes update when ready
+    void this._runGeminiBatchAnalysis(sessionId, playerSummaries);
+
+    return ranked;
+  }
+
+  /**
+   * Runs Gemini AI batch portfolio analysis asynchronously.
+   * Does NOT block endSession — results are pushed via WebSocket when ready.
+   */
+  private async _runGeminiBatchAnalysis(
+    sessionId: string,
+    playerSummaries: Record<string, string>,
+  ): Promise<void> {
+    if (Object.keys(playerSummaries).length === 0) return;
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      this.logger.warn('GEMINI_API_KEY not set, skipping AI analysis.');
+      return;
+    }
+
     const playerAnalyses: Record<string, string> = {};
-    if (Object.keys(playerSummaries).length > 0) {
-      try {
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (apiKey) {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          const { GoogleGenAI } = require('@google/generative-ai');
-          const ai = new GoogleGenAI(apiKey);
-          const prompt = `You are an elite, harsh financial simulation AI. Analyze the final statuses of these players in one batch. For each player, provide a 1-2 sentence harsh critique of their final portfolio and returns.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { GoogleGenAI } = require('@google/generative-ai');
+      const ai = new GoogleGenAI(apiKey);
+      const prompt = `You are an elite, harsh financial simulation AI. Analyze the final statuses of these players in one batch. For each player, provide a 1-2 sentence harsh critique of their final portfolio and returns.
 Players:
 ${Object.values(playerSummaries).join('\n\n')}
 
 Return a valid JSON object where keys are Player IDs and values are their individual critiques. Do not include markdown wraps or anything outside the JSON object. Example: {"uuid123": "You held 100% cash while the market rallied. Cowardice is not an investment strategy."}`;
-          
-          const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
-          
-          // Fix #4: Gemini Timeout & Fallback
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Gemini timeout')), 30000)
-          );
-          
-          const result: any = await Promise.race([
-            model.generateContent(prompt),
-            timeoutPromise
-          ]);
-          
-          const response = result.response;
 
-          let text = response.text() || "{}";
-          text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-          const parsed = JSON.parse(text);
-          Object.assign(playerAnalyses, parsed);
-        }
-      } catch (err) {
-        this.logger.error("Gemini batch analysis failed or timed out", err);
-        // Fallback for all players
-        for (const userId of Object.keys(playerSummaries)) {
-          if (!playerAnalyses[userId]) {
-            playerAnalyses[userId] = "Analysis unavailable at this time.";
-          }
-        }
+      const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Gemini timeout')), 30000),
+      );
+
+      const result: any = await Promise.race([
+        model.generateContent(prompt),
+        timeoutPromise,
+      ]);
+
+      let text: string = result.response.text() || '{}';
+      text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      Object.assign(playerAnalyses, JSON.parse(text));
+    } catch (err) {
+      this.logger.error('Gemini batch analysis failed or timed out', err);
+      for (const userId of Object.keys(playerSummaries)) {
+        playerAnalyses[userId] = 'Analysis unavailable at this time.';
       }
     }
 
-    // Persist AI Insights
-    for (const userId of Object.keys(playerAnalyses)) {
-      await prisma.score.update({
-        where: { sessionId_userId: { sessionId, userId } },
-        data: { geminiAnalysis: playerAnalyses[userId] }
-      });
+    // Persist AI analysis to DB
+    for (const [userId, analysis] of Object.entries(playerAnalyses)) {
+      try {
+        await prisma.score.update({
+          where: { sessionId_userId: { sessionId, userId } },
+          data: { geminiAnalysis: analysis },
+        });
+      } catch (err) {
+        this.logger.warn(`Failed to persist AI analysis for ${userId}: ${err}`);
+      }
     }
 
-    // Sort by score descending and assign ranks
-    return scores
-      .sort((a: any, b: any) => b.score - a.score)
-      .map((s: any, i: number) => ({ ...s, rank: i + 1 }));
+    // Push update to all clients in the session room
+    this.gameGateway.server.to(sessionId).emit('game:ai_analysis_ready', {
+      analyses: playerAnalyses,
+    });
+    this.logger.log(`AI analysis pushed to session ${sessionId} (${Object.keys(playerAnalyses).length} players)`);
   }
 
   async pauseSession(sessionId: string) {
@@ -776,7 +804,7 @@ Return a valid JSON object where keys are Player IDs and values are their indivi
   async openMarket(sessionId: string) {
     const engine = await this.getOrCreateEngine(sessionId);
     engine.updateStatus('ACTIVE');
-    engine.setTimer(180); // 3 minutes per round
+    engine.setTimer(GAME_CONFIG.DEFAULT_SESSION_DURATION);
     const state = engine.getState();
     state.readyPlayers = []; // Reset ready players
     state.newsAckPlayers = []; // Reset news ack
