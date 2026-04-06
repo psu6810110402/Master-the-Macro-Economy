@@ -1,21 +1,23 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useSocket } from '@/hooks/useSocket';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUpRight, ArrowDownRight, TrendingUp } from 'lucide-react';
-import TradeDialog from '@/components/dashboard/TradeDialog';
+import { ArrowUpRight, ArrowDownRight, TrendingUp, Lock } from 'lucide-react';
+import TradePanel from '@/components/dashboard/TradePanel';
+import BreakingNews from '@/components/game/BreakingNews';
 import RoundResultModal from '@/components/game/RoundResultModal';
 import GameOverModal from '@/components/game/GameOverModal';
 import { Button } from '@hackanomics/ui';
 import { api } from '@/lib/api';
+import { useSession } from '@/context/SessionContext';
 
 interface Asset {
   id: string;
   symbol: string;
   name: string;
-  type: 'STOCK' | 'BOND' | 'COMMODITY' | 'CRYPTO' | 'CASH';
+  type: 'STOCK' | 'BOND' | 'COMMODITY' | 'CRYPTO' | 'CASH' | 'REAL_ESTATE';
   price: number;
 }
 
@@ -32,26 +34,45 @@ interface Portfolio {
 }
 
 export default function DashboardPage() {
+  const { sessionId: contextSessionId, role: contextRole, isInitialized } = useSession();
   const [sessionId, setSessionId] = useState<string>('');
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [currentRound, setCurrentRound] = useState<number>(0);
+  const [gameStatus, setGameStatus] = useState<string>('WAITING');
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const [previousPrices, setPreviousPrices] = useState<Record<string, number>>({});
+  const [isLocked, setIsLocked] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState<number | undefined>(undefined);
+  const [isNewsOpen, setIsNewsOpen] = useState(false);
+  const [news, setNews] = useState<any>(null);
+  const [isGameOverOpen, setIsGameOverOpen] = useState(false);
+  const [rankings, setRankings] = useState<any[]>([]);
+  
+  const [macro, setMacro] = useState<any>({
+    interestRate: 2.5,
+    inflation: 3.0,
+    gdpGrowth: 2.8,
+    volatility: 'NORMAL'
+  });
+
+  const { isConnected, lastEvent, emit } = useSocket(sessionId);
 
   useEffect(() => {
-    const savedSessionId = localStorage.getItem('current_session_id');
-    if (savedSessionId) setSessionId(savedSessionId);
+    if (contextSessionId) setSessionId(contextSessionId);
+  }, [contextSessionId]);
 
+  useEffect(() => {
     const fetchData = async () => {
       try {
-        // Get real user ID from JWT
         const me = await api.get<{ userId: string }>('auth/me');
         setCurrentUserId(me.userId);
 
         const [assetsData, portfolioData] = await Promise.all([
-          api.get<Asset[]>('game/assets'),
-          savedSessionId ? api.get<Portfolio>(`portfolio/${savedSessionId}`) : Promise.resolve(null)
+          api.get<Asset[]>(sessionId ? `game/assets?sessionId=${sessionId}` : 'game/assets'),
+          sessionId ? api.get<Portfolio>(`portfolio/${sessionId}`) : Promise.resolve(null)
         ]);
         setAssets(assetsData);
         setPortfolio(portfolioData);
@@ -62,305 +83,227 @@ export default function DashboardPage() {
       }
     };
 
-    fetchData();
-  }, []);
-
-  const { isConnected, lastEvent, emit } = useSocket(sessionId);
-  const [prices, setPrices] = useState<Record<string, number>>({});
-  const [previousPrices, setPreviousPrices] = useState<Record<string, number>>({});
-  const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
-  const [isTradeOpen, setIsTradeOpen] = useState(false);
-  const [roundSummary, setRoundSummary] = useState<any>(null);
-  const [isRoundResultOpen, setIsRoundResultOpen] = useState(false);
-  const [sessionRole, setSessionRole] = useState<'PLAYER' | 'FACILITATOR' | null>(null);
-
-  useEffect(() => {
-    const role = localStorage.getItem('session_role') as 'PLAYER' | 'FACILITATOR';
-    setSessionRole(role);
-  }, []);
-  
-  // Phase 6 State
-  const [isGameOverOpen, setIsGameOverOpen] = useState(false);
-  const [rankings, setRankings] = useState<any[]>([]);
-  const [tradeHistory, setTradeHistory] = useState<any[]>([]);
+    if (sessionId && isInitialized) {
+      fetchData();
+    } else if (isInitialized && !sessionId) {
+      setIsLoading(false);
+    }
+  }, [sessionId, isInitialized]);
 
   useEffect(() => {
     if (!lastEvent) return;
 
     if (lastEvent.event === 'initialState') {
-      setPrices(lastEvent.data.assetPrices);
-      setPreviousPrices(lastEvent.data.assetPrices);
-      setCurrentRound(lastEvent.data.round);
+      const initialPrices = lastEvent.data.assetPrices || {};
+      const initialPrevPrices = lastEvent.data.previousPrices || initialPrices;
+      setPrices(initialPrices);
+      setPreviousPrices(initialPrevPrices);
+      setCurrentRound(lastEvent.data.round || lastEvent.data.currentRound || 0);
+      setGameStatus(lastEvent.data.status || 'WAITING');
+      setSecondsLeft(lastEvent.data.timer);
+      
+      if (lastEvent.data.macro) {
+        setMacro(lastEvent.data.macro);
+      }
+
+      if (lastEvent.data.status === 'COMPLETED') {
+        setRankings(lastEvent.data.rankings || []);
+        setIsGameOverOpen(true);
+      }
+      
+      if (lastEvent.data.news) {
+        setNews(lastEvent.data.news);
+        setIsNewsOpen(true);
+      }
     }
 
-    if (lastEvent.event === 'roundStarted') {
+    if (lastEvent.event === 'game:round_start') {
       setPreviousPrices(prices);
       setPrices(lastEvent.data.assetPrices);
       setCurrentRound(lastEvent.data.round);
+      setIsLocked(false);
+      setGameStatus('ACTIVE');
       
-      if (lastEvent.data.summary) {
-        setRoundSummary(lastEvent.data.summary);
-        setIsRoundResultOpen(true);
+      if (lastEvent.data.macro) {
+        setMacro(lastEvent.data.macro);
       }
       
-      // Refresh portfolio on round start
+      if (lastEvent.data.news) {
+        setNews(lastEvent.data.news);
+        setIsNewsOpen(true);
+      }
+      
       if (sessionId) {
         api.get<Portfolio>(`portfolio/${sessionId}`).then(setPortfolio);
       }
     }
 
     if (lastEvent.event === 'marketOpened') {
-      setIsRoundResultOpen(false); // Hide the news break screen
+      setPrices(lastEvent.data.assetPrices || prices);
+      setSecondsLeft(lastEvent.data.timer);
+      setGameStatus('ACTIVE');
     }
 
-    if (lastEvent.event === 'sessionEnded') {
-      setRankings(lastEvent.data.rankings);
-      setIsGameOverOpen(true);
+    if (lastEvent.event === 'game:timer_tick') {
+      setSecondsLeft(lastEvent.data.secondsLeft);
     }
 
-    if (lastEvent.event === 'tradeAcknowledged') {
-      setTradeHistory(prev => [
-        { ...lastEvent.data.trade, timestamp: Date.now() },
-        ...prev
-      ].slice(0, 10));
-
-      // Refresh portfolio on trade
+    if (lastEvent.event === 'trade:confirmed') {
+      setIsLocked(true);
       if (sessionId) {
         api.get<Portfolio>(`portfolio/${sessionId}`).then(setPortfolio);
       }
     }
-  }, [lastEvent, sessionId]);
 
-  if (isLoading) {
+    if (lastEvent.event === 'game:round_end') {
+      setIsLocked(true);
+      setPrices(lastEvent.data.assetPrices);
+      setCurrentRound(lastEvent.data.round);
+      setSecondsLeft(0);
+    }
+
+    if (lastEvent.event === 'sessionEnded') {
+      setRankings(lastEvent.data.rankings || []);
+      setIsGameOverOpen(true);
+      setGameStatus('COMPLETED');
+    }
+  }, [lastEvent, sessionId, prices]);
+
+  if (isLoading || !isInitialized) {
     return (
       <DashboardLayout title="Dashboard" currentRound={currentRound} totalValue={0}>
-        <div className="h-[60vh] flex flex-col items-center justify-center opacity-20 uppercase tracking-[0.3em] font-black">
-          <div className="w-12 h-[2px] bg-[oklch(var(--accent-brand))] mb-4 animate-pulse" />
-          Synchronizing with Global Market...
+        <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-[oklch(var(--text-muted))]">
+          <div className="w-8 h-8 border-2 border-t-[oklch(var(--accent-brand))] border-[oklch(var(--border-subtle))] rounded-full animate-spin" />
+          <span className="text-xs font-bold uppercase tracking-widest">Loading…</span>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (gameStatus === 'WAITING' || (isConnected && !lastEvent)) {
+    return (
+      <DashboardLayout title="Waiting Room" currentRound={0} totalValue={portfolio?.totalValue || 100000}>
+        <div className="h-[60vh] flex flex-col items-center justify-center space-y-6">
+          <div className="w-16 h-16 border border-[oklch(var(--border-subtle))] flex items-center justify-center bg-[oklch(var(--bg-secondary))] animate-pulse">
+            <Lock className="text-[oklch(var(--text-muted))]" size={24} />
+          </div>
+          <div className="text-center space-y-2">
+            <h2 className="text-2xl font-black uppercase tracking-widest">Waiting for session to start</h2>
+            <p className="text-sm text-[oklch(var(--text-muted))] font-medium">
+              The facilitator will begin the simulation shortly.
+            </p>
+          </div>
         </div>
       </DashboardLayout>
     );
   }
 
   const totalValue = portfolio?.totalValue || 100000;
-  const cashBalance = portfolio?.cashBalance || 100000;
   const returnPct = ((totalValue - 100000) / 100000) * 100;
 
   return (
     <>
-      <DashboardLayout title="Terminal Shell" currentRound={currentRound} totalValue={totalValue}>
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-          <div className="lg:col-span-8 space-y-12">
-            {/* Portfolio Section */}
+      <DashboardLayout title="Market" currentRound={currentRound} totalValue={totalValue} secondsLeft={secondsLeft}>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-[calc(100vh-12rem)]">
+          <div className="lg:col-span-8 flex flex-col gap-8 overflow-hidden">
             <motion.section
-              initial="hidden"
-              animate="visible"
-              variants={{
-                hidden: {},
-                visible: { transition: { staggerChildren: 0.1 } },
-              }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] p-8"
             >
-              <motion.div 
-                variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] } } }}
-                className="flex justify-between items-end mb-8"
-              >
+              <div className="flex justify-between items-end">
                 <div>
-                  <h2 className="text-[10px] uppercase font-bold tracking-[0.3em] text-[oklch(var(--text-muted))] mb-2">Portfolio Overview</h2>
-                  <h1 className="text-6xl font-black font-display tracking-tighter">
+                  <h2 className="text-[10px] uppercase font-bold tracking-[0.3em] text-[oklch(var(--text-muted))] mb-4 text-glow">Net Liquid Worth</h2>
+                  <h1 className="text-6xl font-black font-display tracking-tighter tabular-nums">
                     ${totalValue.toLocaleString()}<span className="text-[oklch(var(--text-muted))] text-3xl">.00</span>
                   </h1>
                 </div>
                 <div className="text-right">
-                  <div className={`flex items-center gap-2 font-bold text-xl ${returnPct >= 0 ? 'text-[oklch(var(--accent-up))]' : 'text-[oklch(var(--accent-down))]'}`}>
+                  <div className={`flex items-center gap-2 font-black text-2xl ${returnPct >= 0 ? 'text-[oklch(var(--status-success))]' : 'text-[oklch(var(--status-error))]'}`}>
                     {returnPct >= 0 ? <ArrowUpRight size={24} /> : <ArrowDownRight size={24} />}
-                    <span>{returnPct >= 0 ? '+' : ''}{returnPct.toFixed(1)}%</span>
+                    <span>{returnPct >= 0 ? '+' : ''}{returnPct.toFixed(2)}%</span>
                   </div>
-                  <div className="text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))]">All Time Return</div>
+                  <div className="text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))] mt-1">Total Return</div>
                 </div>
-              </motion.div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {[
-                  { label: 'Cash Balance', value: `$${Number(cashBalance).toLocaleString()}` },
-                  { label: 'Invested Assets', value: `$${(totalValue - Number(cashBalance)).toLocaleString()}` },
-                  { label: 'Active Trades', value: `${portfolio?.holdings.length || 0} Positions`, accent: true },
-                ].map((card, i) => (
-                  <motion.div
-                    key={card.label}
-                    variants={{ hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: [0.16, 1, 0.3, 1] } } }}
-                    className={card.accent 
-                      ? 'bg-[oklch(var(--accent-brand)/0.1)] p-6 border border-[oklch(var(--accent-brand)/0.3)]'
-                      : 'bg-[oklch(var(--bg-secondary))] p-6 border border-[oklch(var(--border-subtle))]'
-                    }
-                  >
-                    <div className={`text-[10px] uppercase font-bold tracking-widest mb-4 ${
-                      card.accent ? 'text-[oklch(var(--accent-brand))]' : 'text-[oklch(var(--text-muted))]'
-                    }`}>{card.label}</div>
-                    <div className={`text-2xl font-black font-display tabular-nums ${
-                      card.accent ? 'text-[oklch(var(--accent-brand))]' : ''
-                    }`}>{card.value}</div>
-                  </motion.div>
-                ))}
               </div>
             </motion.section>
 
-            {/* Market Section */}
-            <section>
-              <div className="flex items-center justify-between mb-8">
-                <h2 className="text-[10px] uppercase font-bold tracking-[0.3em] text-[oklch(var(--text-muted))]">Live Market Terminal</h2>
-                <div className="flex items-center gap-2 text-[oklch(var(--text-muted))] text-[10px] font-bold uppercase tracking-widest">
-                  Status: {isConnected ? <span className="text-[oklch(var(--accent-up))]">Connected</span> : <span className="text-[oklch(var(--accent-down))]">Disconnected</span>}
+            <section className="flex-1 bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] p-6 overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-[10px] uppercase font-bold tracking-[0.3em] text-[oklch(var(--text-muted))]">Global Market Feed</h2>
+                <div className={`text-xs font-bold ${isConnected ? 'text-[oklch(var(--status-success))]' : 'text-[oklch(var(--status-error))] animate-pulse'}`}>
+                  {isConnected ? 'Live' : 'Reconnecting…'}
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-[oklch(var(--border-subtle))]">
-                      <th className="py-4 text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))] w-16">Tick</th>
-                      <th className="py-4 text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))]">Asset</th>
-                      <th className="py-4 text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))] text-right">Price</th>
-                      <th className="py-4 text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))] text-right">Change</th>
-                      <th className="py-4 text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))] text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[oklch(var(--border-subtle))/0.5]">
-                    {assets.map((asset) => {
-                      const currentPrice = prices[asset.symbol] || asset.price || 100;
-                      const prevPrice = previousPrices[asset.symbol] || asset.price || 100;
-                      const isUp = currentPrice >= prevPrice;
-                      
-                      return (
-                        <motion.tr 
-                          key={asset.symbol}
-                          initial={false}
-                          className="group hover:bg-[oklch(var(--text-primary)/0.02)] transition-colors"
-                        >
-                          <td className="py-6">
-                            {isUp ? (
-                              <div className="w-2 h-2 rounded-full bg-[oklch(var(--accent-up))]" />
-                            ) : (
-                              <div className="w-2 h-2 rounded-full bg-[oklch(var(--accent-down))]" />
-                            )}
-                          </td>
-                          <td className="py-6">
-                            <div className="font-display font-black text-lg leading-tight uppercase tracking-tight">{asset.symbol}</div>
-                            <div className="text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))]">{asset.name}</div>
-                          </td>
-                          <td className="py-6 text-right font-display font-black text-xl tabular-nums">
-                            <AnimatePresence mode="wait">
-                              <motion.span
-                                key={currentPrice}
-                                initial={{ opacity: 0, y: isUp ? 10 : -10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className={isUp ? 'text-[oklch(var(--accent-up))]' : 'text-[oklch(var(--accent-down))]'}
-                              >
-                                ${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </motion.span>
-                            </AnimatePresence>
-                          </td>
-                          <td className="py-6 text-right">
-                            <div className={`inline-flex items-center gap-1 font-bold ${isUp ? 'text-[oklch(var(--accent-up))]' : 'text-[oklch(var(--accent-down))]'}`}>
-                              {isUp ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                              <span className="text-xs uppercase tracking-tighter">
-                                {((Math.abs(currentPrice - prevPrice) / prevPrice) * 100).toFixed(2)}%
-                              </span>
+              <div className="flex-1 overflow-y-auto scrollbar-hide pr-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {assets.map((asset) => {
+                    const currentPrice = prices[asset.symbol] || asset.price || 100;
+                    const prevPrice = previousPrices[asset.symbol] || asset.price || 100;
+                    const isUp = currentPrice >= prevPrice;
+                    
+                    return (
+                      <div key={asset.symbol} className="p-3 bg-[oklch(var(--bg-primary))] border border-[oklch(var(--border-subtle))] flex justify-between items-center group hover:border-[oklch(var(--accent-brand)/0.5)] transition-all">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm font-black font-display tracking-tight uppercase italic truncate">{asset.symbol}</div>
+                            <div className="text-[10px] px-1 bg-[oklch(var(--border-subtle)/0.5)] font-bold uppercase tracking-tighter opacity-70">
+                              {asset.type}
                             </div>
-                          </td>
-                          <td className="py-6 text-right">
-                            <button 
-                              onClick={() => {
-                                setSelectedAsset({ ...asset, price: currentPrice });
-                                setIsTradeOpen(true);
-                              }}
-                              className="px-4 py-2 border border-[oklch(var(--border-subtle))] hover:border-[oklch(var(--accent-brand))] hover:text-[oklch(var(--accent-brand))] transition-all uppercase text-[10px] font-bold tracking-[0.2em]"
-                            >
-                              Trade
-                            </button>
-                          </td>
-                        </motion.tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                          </div>
+                          <div className="text-xs font-medium text-[oklch(var(--text-muted))] truncate">{asset.name}</div>
+                        </div>
+                        <div className="text-right flex-shrink-0 ml-2">
+                          <div className={`text-sm font-black font-mono tabular-nums ${isUp ? 'text-[oklch(var(--status-success))]' : 'text-[oklch(var(--status-error))]'}`}>
+                            ${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                          <div className={`text-xs font-bold flex items-center justify-end gap-1 ${isUp ? 'text-[oklch(var(--status-success))]' : 'text-[oklch(var(--status-error))]'}`}>
+                            {isUp ? '+' : ''}{((currentPrice - prevPrice) / prevPrice * 100).toFixed(2)}%
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </section>
           </div>
 
-          {/* Sidebar: Recent Activity */}
-          <aside className="lg:col-span-4 space-y-8">
-            <div className="bg-[oklch(var(--bg-secondary))] border border-[oklch(var(--border-subtle))] flex flex-col h-[600px]">
-              <div className="p-4 border-b border-[oklch(var(--border-subtle))] bg-[oklch(var(--bg-primary))]">
-                <h2 className="text-[10px] uppercase font-black tracking-[0.3em] flex items-center gap-2">
-                  <TrendingUp size={14} className="text-[oklch(var(--accent-brand))]" />
-                  Recent Orders
-                </h2>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 font-mono text-[10px]">
-                {tradeHistory.length === 0 && (
-                  <div className="h-full flex items-center justify-center opacity-20 uppercase tracking-widest text-center px-8">
-                    No trade activity recorded in this session.
-                  </div>
-                )}
-                {tradeHistory.map((trade, i) => (
-                  <motion.div 
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    key={i}
-                    className="p-3 border-l-2 border-[oklch(var(--accent-brand))] bg-[oklch(var(--bg-primary))] space-y-1"
-                  >
-                    <div className="flex justify-between items-center mb-2">
-                      <span className={`px-1.5 py-0.5 rounded-[2px] text-[8px] font-black ${trade.action === 'BUY' ? 'bg-[oklch(var(--accent-up)/0.15)] text-[oklch(var(--accent-up))]' : 'bg-[oklch(var(--accent-down)/0.15)] text-[oklch(var(--accent-down))]'}`}>
-                        {trade.action}
-                      </span>
-                      <span className="opacity-40 tabular-nums">{new Date(trade.timestamp).toLocaleTimeString()}</span>
-                    </div>
-                    <div className="flex justify-between font-bold uppercase tracking-tight">
-                      <span>{trade.quantity} {trade.symbol}</span>
-                      <span className="text-[oklch(var(--text-muted))]">@ ${trade.price.toLocaleString()}</span>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
+          <aside className="lg:col-span-4 h-full relative">
+            <TradePanel 
+              round={currentRound}
+              assetPrices={prices}
+              isLocked={isLocked}
+              onCommit={(allocation) => {
+                emit('trade:commit', { sessionId, allocation });
+              }}
+            />
           </aside>
         </div>
       </DashboardLayout>
 
-      <TradeDialog 
-        isOpen={isTradeOpen}
-        onClose={() => setIsTradeOpen(false)}
-        asset={selectedAsset}
-        onExecute={async (data) => {
-          try {
-            const result = await api.post('trade/execute', {
-              sessionId,
-              symbol: data.symbol,
-              quantity: data.quantity,
-              action: data.action,
-            });
-            // Refresh portfolio after trade
-            const updatedPortfolio = await api.get<Portfolio>(`portfolio/${sessionId}`);
-            setPortfolio(updatedPortfolio);
-            setTradeHistory(prev => [{ ...data, price: selectedAsset?.price || 0, timestamp: Date.now() }, ...prev].slice(0, 10));
-          } catch (err: any) {
-            console.error('Trade failed:', err);
-            alert(err.message || 'Trade execution failed');
-          }
-          setIsTradeOpen(false);
+      <BreakingNews 
+        isOpen={isNewsOpen}
+        headline={news?.headline || "MARKET SHIFT DETECTED"}
+        description={news?.body || "Analyzing economic deltas..."}
+        round={currentRound}
+        macro={{
+          interestRate: macro.interestRate,
+          inflation: macro.inflation,
+          gdpGrowth: macro.gdpGrowth,
+          blackSwanActive: macro.blackSwanActive,
+          blackSwanEvent: macro.blackSwanEvent
+        }}
+        onDismiss={() => {
+          setIsNewsOpen(false);
+          emit('player:ready_ack', { sessionId });
         }}
       />
-      <RoundResultModal 
-        isOpen={isRoundResultOpen}
-        onClose={() => setIsRoundResultOpen(false)}
-        data={roundSummary}
-        role={sessionRole}
-        onOpenMarket={() => {
-          emit('openMarket', { sessionId });
-        }}
-      />
+
       <GameOverModal 
         isOpen={isGameOverOpen}
+        onClose={() => setIsGameOverOpen(false)}
         rankings={rankings}
         currentUserId={currentUserId}
         sessionId={sessionId}
@@ -368,4 +311,3 @@ export default function DashboardPage() {
     </>
   );
 }
-

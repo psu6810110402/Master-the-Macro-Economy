@@ -13,4 +13,8 @@ export class CreateSessionDto {
   @IsString()
   @IsOptional()
   scenarioId?: string;
+
+  @IsString()
+  @IsOptional()
+  format?: string;
 }

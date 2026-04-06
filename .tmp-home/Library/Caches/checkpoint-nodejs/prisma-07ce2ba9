@@ -1,0 +1,30 @@
+{
+  "last_reminder": 0,
+  "cached_at": 1774868283672,
+  "version": "5.22.0",
+  "cli_path": "/Users/aphchat/Coding Year 1/Hacka/Master-the-Macro-Economy/node_modules/.bin/prisma",
+  "output": {
+    "product": "prisma",
+    "previous_version": "5.22.0",
+    "checkpoint_version": 4,
+    "local_timestamp_without_timezone": "2026-03-30T17:58:02Z",
+    "current_version": "7.6.0",
+    "current_release_date": 1774620441,
+    "client_event_id": "208f06df-68c5-4959-ae5e-99563a0e4a44",
+    "current_download_url": "https://github.com/prisma/prisma",
+    "package": "prisma",
+    "release_tag": "latest",
+    "install_command": "npm install --save-dev prisma",
+    "schema_providers": [
+      "postgresql"
+    ],
+    "schema_preview_features": [],
+    "schema_generators_providers": [
+      "prisma-client-js"
+    ],
+    "current_changelog_url": "https://github.com/prisma/prisma",
+    "outdated": true,
+    "project_website": "https://prisma.io",
+    "alerts": []
+  }
+}

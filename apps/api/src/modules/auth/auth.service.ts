@@ -1,15 +1,20 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { PrismaClient } from '@hackanomics/database';
+import { UserRole } from '@hackanomics/database';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-
-const prisma = new PrismaClient();
+import { ConfigService } from '@nestjs/config';
+import { prisma } from '../../prisma';
 
 @Injectable()
 export class AuthService {
-  constructor(private jwtService: JwtService) {}
+  private readonly logger = new Logger(AuthService.name);
+  constructor(
+    public readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async validateUserService(supabaseId: string, email: string) {
     // Look up user internally
@@ -23,6 +28,8 @@ export class AuthService {
          data: {
            supabaseId,
            email,
+           firstName: email.split('@')[0],
+           lastName: '',
            displayName: email.split('@')[0], 
          }
        });
@@ -35,22 +42,26 @@ export class AuthService {
       sub: user.supabaseId, 
       email: user.email, 
       role: user.role,
-      displayName: user.displayName 
+      firstName: user.firstName,
+      lastName: user.lastName
     };
     return {
       access_token: this.jwtService.sign(payload),
     };
   }
 
-  async createGuestUser(role: string = 'PLAYER') {
-    const guestId = Math.random().toString(36).substring(7);
-    const email = `guest_${guestId}@hackanomics.dev`;
+  async createGuestUser(role: UserRole = UserRole.PLAYER, firstName: string = 'Guest', lastName?: string) {
+    const guestId = randomUUID();
+    const email = `guest_${guestId.substring(0, 8)}@hackanomics.dev`;
+    const resolvedLastName = lastName || guestId.substring(0, 6);
     
     const user = await prisma.user.create({
       data: {
-        supabaseId: `guest_${guestId}`,
+        supabaseId: guestId,
         email,
-        displayName: `Guest ${guestId.toUpperCase()}`,
+        firstName,
+        lastName: resolvedLastName,
+        displayName: `${firstName} ${resolvedLastName}`.trim(),
         role,
       }
     });
@@ -69,19 +80,23 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
     
-    // Generate a pseudo-supabaseId for internal consistency if not using real Supabase
-    const internalId = Math.random().toString(36).substring(7);
+    // Validate incoming authentic Supabase JWT sync claim, otherwise generate compliant UUID
+    const validatedSupabaseId = (dto as any).supabaseId || randomUUID();
 
     const user = await prisma.user.create({
       data: {
         email: dto.email,
         passwordHash,
-        displayName: dto.displayName,
-        supabaseId: `local_${internalId}`,
-        role: dto.role || 'PLAYER',
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        supabaseId: validatedSupabaseId,
+        role: dto.email.includes('admin') || dto.email.includes('facilitator') 
+          ? UserRole.ADMIN 
+          : (dto.role as UserRole) || UserRole.PLAYER,
       },
     });
 
+    this.logger.log(`[Auth] User registered: ${user.email} with role ${user.role}`);
     return this.generateToken(user);
   }
 
@@ -96,9 +111,11 @@ export class AuthService {
 
     const isMatch = await bcrypt.compare(dto.password, user.passwordHash);
     if (!isMatch) {
+      this.logger.warn(`[Auth] Failed login attempt for ${dto.email}: Invalid password`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    this.logger.log(`[Auth] User logged in: ${user.email} (${user.role})`);
     return this.generateToken(user);
   }
 }

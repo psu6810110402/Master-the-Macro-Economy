@@ -3,4 +3,32 @@
 > api@1.0.0 build
 > nest build
 
+[96msrc/modules/auth/auth.service.ts[0m:[93m61[0m:[93m9[0m - [91merror[0m[90m TS2322: [0mType 'string' is not assignable to type 'UserRole | undefined'.
+
+[7m61[0m         role,
+[7m  [0m [91m        ~~~~[0m
+
+  [96m../../node_modules/.prisma/client/index.d.ts[0m:[93m18395[0m:[93m5[0m
+    [7m18395[0m     role?: $Enums.UserRole
+    [7m     [0m [96m    ~~~~[0m
+    The expected type comes from property 'role' which is declared here on type '(Without<UserCreateInput, UserUncheckedCreateInput> & UserUncheckedCreateInput) | (Without<...> & UserCreateInput)'
+[96msrc/modules/auth/auth.service.ts[0m:[93m90[0m:[93m9[0m - [91merror[0m[90m TS2322: [0mType 'string' is not assignable to type 'UserRole | undefined'.
+
+[7m90[0m         role: dto.role || 'PLAYER',
+[7m  [0m [91m        ~~~~[0m
+
+  [96m../../node_modules/.prisma/client/index.d.ts[0m:[93m18395[0m:[93m5[0m
+    [7m18395[0m     role?: $Enums.UserRole
+    [7m     [0m [96m    ~~~~[0m
+    The expected type comes from property 'role' which is declared here on type '(Without<UserCreateInput, UserUncheckedCreateInput> & UserUncheckedCreateInput) | (Without<...> & UserCreateInput)'
+
+Found 2 error(s).
+
+⠙[1G[0K[1mnpm[22m [31merror[39m Lifecycle script `build` failed with error:
+⠙[1G[0K[1mnpm[22m [31merror[39m [94mcode[39m [33m1[39m
+⠙[1G[0K[1mnpm[22m [31merror[39m [94mpath[39m /Users/aphchat/Coding Year 1/Hackanomics/apps/api
+⠙[1G[0K[1mnpm[22m [31merror[39m [94mworkspace[39m api@1.0.0
+⠙[1G[0K[1mnpm[22m [31merror[39m [94mlocation[39m /Users/aphchat/Coding Year 1/Hackanomics/apps/api
+⠙[1G[0K[1mnpm[22m [31merror[39m command failed
+⠙[1G[0K[1mnpm[22m [31merror[39m [94mcommand[39m sh -c nest build
 ⠙[1G[0K

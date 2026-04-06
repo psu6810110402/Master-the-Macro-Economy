@@ -16,6 +16,16 @@ export default function TradeDialog({ isOpen, onClose, asset, onExecute }: Trade
   const [quantity, setQuantity] = useState(1);
   const [action, setAction] = useState<'BUY' | 'SELL'>('BUY');
 
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!asset) return null;
 
   const total = quantity * asset.price;

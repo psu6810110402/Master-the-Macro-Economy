@@ -6,6 +6,7 @@ import { useSocket } from '@/hooks/useSocket';
 import { Trophy, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api, ApiError } from '@/lib/api';
+import { useSession } from '@/context/SessionContext';
 
 interface RankingEntry {
   userId: string;
@@ -28,14 +29,19 @@ const cardVariant = {
 };
 
 export default function LeaderboardPage() {
-  const { isConnected, lastEvent } = useSocket('TEST-SESSION-ID');
+  const { sessionId } = useSession();
+  const { isConnected, lastEvent } = useSocket(sessionId || '');
   const [rankings, setRankings] = useState<RankingEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!sessionId) {
+      setLoading(false);
+      return;
+    }
     const fetchRankings = async () => {
       try {
-        const data = await api.get<RankingEntry[]>(`leaderboard/TEST-SESSION-ID`);
+        const data = await api.get<RankingEntry[]>(`leaderboard/${sessionId}`);
         setRankings(data);
       } catch (err) {
         if (err instanceof ApiError) {
@@ -48,7 +54,7 @@ export default function LeaderboardPage() {
       }
     };
     fetchRankings();
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     if (lastEvent?.event === 'leaderboardUpdate') {
@@ -67,34 +73,28 @@ export default function LeaderboardPage() {
           className="flex justify-between items-end border-b-2 border-[oklch(var(--border-subtle))] pb-6"
         >
           <div>
-            <div className="flex items-center gap-3 text-[oklch(var(--accent-brand))] mb-2">
-              <Trophy size={16} />
-              <span className="text-[10px] uppercase font-bold tracking-[0.3em]">HCK Global Ranking</span>
+            <div className="flex items-center gap-2 text-[oklch(var(--accent-brand))] mb-2">
+              <Trophy size={14} />
+              <span className="text-xs font-bold uppercase tracking-widest">Session Rankings</span>
             </div>
-            <h1 className="text-5xl font-black font-display tracking-tighter uppercase">Leaderboard</h1>
+            <h1 className="text-4xl font-black tracking-tight">Leaderboard</h1>
           </div>
-          <div className="text-right">
-            <div className="text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))] mb-1">Status</div>
-            <div className="flex items-center gap-2 font-bold text-xs">
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-[oklch(var(--accent-up))] animate-pulse' : 'bg-[oklch(var(--accent-down))]'}`} />
-              {isConnected ? 'LIVE FEED' : 'OFFLINE'}
-            </div>
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-[oklch(var(--accent-up))] animate-pulse' : 'bg-[oklch(var(--accent-down))]'}`} />
+            <span className="text-[oklch(var(--text-muted))]">{isConnected ? 'Live' : 'Offline'}</span>
           </div>
         </motion.header>
 
         {/* Rankings */}
         {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-[10px] uppercase font-bold tracking-widest animate-pulse text-[oklch(var(--text-muted))]">
-              Initializing Data Stream...
-            </div>
+          <div className="flex flex-col items-center justify-center h-64 gap-4">
+            <div className="w-6 h-6 border-t-2 border-[oklch(var(--accent-brand))] animate-spin rounded-full" />
+            <span className="text-xs font-bold text-[oklch(var(--text-muted))] uppercase tracking-widest">Loading…</span>
           </div>
         ) : rankings.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 gap-4">
-            <Trophy size={32} className="text-[oklch(var(--text-muted))] opacity-30" />
-            <div className="text-[10px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))]">
-              No rankings available yet — start a session to populate
-            </div>
+            <Trophy size={28} className="text-[oklch(var(--text-muted))] opacity-30" />
+            <p className="text-sm text-[oklch(var(--text-muted))]">No rankings yet — start a session first.</p>
           </div>
         ) : (
           <motion.div
@@ -130,17 +130,17 @@ export default function LeaderboardPage() {
                       <User size={18} />
                     </div>
                     <div>
-                      <div className="font-bold uppercase tracking-widest text-sm">{entry.username}</div>
-                      <div className="text-[10px] text-[oklch(var(--text-muted))] font-bold uppercase tracking-wider">
-                        ID: {entry.userId.slice(0, 8)}
+                      <div className="font-bold text-sm">{entry.username}</div>
+                      <div className="text-xs text-[oklch(var(--text-muted))] font-medium tabular-nums">
+                        {entry.userId.slice(0, 8)}
                       </div>
                     </div>
                   </div>
 
                   {/* Value */}
                   <div className="text-right">
-                    <div className="text-[9px] uppercase font-bold tracking-widest text-[oklch(var(--text-muted))] mb-1">Net Worth</div>
-                    <div className="font-display font-black text-xl tabular-nums">
+                    <div className="text-xs font-bold uppercase tracking-widest text-[oklch(var(--text-muted))] mb-1">Net Worth</div>
+                    <div className="font-black text-xl tabular-nums">
                       ${entry.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                   </div>
@@ -151,9 +151,9 @@ export default function LeaderboardPage() {
         )}
         
         {/* Footer */}
-        <footer className="pt-12 border-t border-[oklch(var(--border-subtle))] flex justify-between items-center opacity-20">
-          <div className="text-[8px] uppercase font-bold tracking-widest">Calculated real-time from current market dynamics</div>
-          <div className="text-[8px] uppercase font-bold tracking-widest">© HACKANOMICS TERMINAL v1.0</div>
+        <footer className="pt-8 border-t border-[oklch(var(--border-subtle))] flex justify-between items-center">
+          <div className="text-xs text-[oklch(var(--text-muted)/0.5)] font-medium">Rankings update in real time</div>
+          <div className="text-xs text-[oklch(var(--text-muted)/0.5)] font-medium">Hackanomics 2026</div>
         </footer>
       </div>
     </DashboardLayout>

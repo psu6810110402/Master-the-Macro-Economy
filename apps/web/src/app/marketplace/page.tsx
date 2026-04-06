@@ -2,22 +2,21 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  Search, 
-  Filter, 
-  ShoppingCart, 
-  ArrowUpRight, 
-  Zap, 
+import {
+  TrendingUp,
+  TrendingDown,
+  Search,
+  ShoppingCart,
+  Zap,
   Info,
-  ChevronRight,
   Target,
   BarChart3
 } from 'lucide-react';
 import { Button } from '@hackanomics/ui';
 import { api } from '@/lib/api';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import TradeDialog from '@/components/dashboard/TradeDialog';
+import { useSocket } from '@/hooks/useSocket';
 
 interface Asset {
   id: string;
@@ -29,25 +28,60 @@ interface Asset {
   sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 }
 
+import { useSession } from '@/context/SessionContext';
+
 export default function MarketplacePage() {
+  const { sessionId: contextSessionId, isInitialized } = useSession();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('ALL');
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
+  const [isTradeOpen, setIsTradeOpen] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number | undefined>(undefined);
+  const [currentRound, setCurrentRound] = useState<number>(1);
+
+  const { isConnected, lastEvent, emit } = useSocket(sessionId || '');
 
   useEffect(() => {
+    if (!isInitialized) return;
+    setSessionId(contextSessionId);
+  }, [contextSessionId, isInitialized]);
+
+  useEffect(() => {
+    if (!lastEvent) return;
+
+    if (lastEvent.event === 'game:timer_tick') {
+      setSecondsLeft(lastEvent.data.secondsLeft);
+    }
+    
+    if (lastEvent.event === 'marketOpened') {
+      setSecondsLeft(lastEvent.data.timer);
+      if (lastEvent.data.round) setCurrentRound(lastEvent.data.round);
+    }
+
+    if (lastEvent.event === 'game:round_start') {
+      setCurrentRound(lastEvent.data.round);
+      // Optional: fetchAssets again to get fresh round prices
+    }
+  }, [lastEvent]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    
     const fetchAssets = async () => {
       try {
-        const data = await api.get<any[]>('game/assets');
-        // Mocking some extra data for the premium feel
-        const enhancedAssets = data.map(base => ({
+        const query = contextSessionId ? `?sessionId=${contextSessionId}` : '';
+        const data = await api.get<any[]>(`game/assets${query}`);
+        // Standardize the data from the API
+        const realAssets = data.map(base => ({
           ...base,
-          currentPrice: 100 + (Math.random() * 50),
-          change24h: (Math.random() - 0.4) * 5,
-          sentiment: Math.random() > 0.6 ? 'BULLISH' : (Math.random() > 0.3 ? 'NEUTRAL' : 'BEARISH'),
-          name: base.symbol === 'AAPL' ? 'Apple Inc.' : (base.symbol === 'BTC' ? 'Bitcoin' : base.symbol)
+          currentPrice: base.price || 100, // Use price from backend
+          change24h: base.change || 0, 
+          sentiment: (base.change > 0 ? 'BULLISH' : base.change < 0 ? 'BEARISH' : 'NEUTRAL') as any
         }));
-        setAssets(enhancedAssets);
+        setAssets(realAssets);
       } catch (err) {
         console.error('Failed to fetch assets:', err);
       } finally {
@@ -55,7 +89,33 @@ export default function MarketplacePage() {
       }
     };
     fetchAssets();
-  }, []);
+  }, [contextSessionId, isInitialized]);
+
+  if (isLoading || !isInitialized) return (
+    <div className="min-h-screen bg-[oklch(var(--bg-main))] flex flex-col items-center justify-center gap-4 text-[oklch(var(--text-muted))]">
+      <div className="w-8 h-8 border-2 border-t-[oklch(var(--accent-brand))] border-[oklch(var(--border-subtle))] rounded-full animate-spin" />
+      <span className="text-xs font-bold uppercase tracking-widest">Loading…</span>
+    </div>
+  );
+
+  const handleTrade = async (trade: { symbol: string; quantity: number; action: 'BUY' | 'SELL' }) => {
+    if (!sessionId) {
+      alert('No active session found. Please join a session first.');
+      return;
+    }
+    try {
+      await api.post('trade/execute', {
+        sessionId,
+        symbol: trade.symbol,
+        quantity: trade.quantity,
+        action: trade.action,
+      });
+      setIsTradeOpen(false);
+      alert(`${trade.action} order for ${trade.quantity} ${trade.symbol} submitted successfully.`);
+    } catch (err: any) {
+      alert(`Trade failed: ${err.message}`);
+    }
+  };
 
   const filteredAssets = assets.filter(asset => {
     const matchesSearch = asset.symbol.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -65,7 +125,11 @@ export default function MarketplacePage() {
   });
 
   return (
-    <DashboardLayout title="Portfolio Marketplace">
+    <DashboardLayout 
+      title="Portfolio Marketplace" 
+      currentRound={currentRound} 
+      secondsLeft={secondsLeft}
+    >
       <div className="space-y-8 pb-12">
         {/* Market Stats Highlight */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -124,7 +188,7 @@ export default function MarketplacePage() {
         {/* Asset Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <AnimatePresence mode="popLayout">
-            {filteredAssets.map((asset, i) => (
+            {filteredAssets.map((asset) => (
               <motion.div
                 key={asset.symbol}
                 layout
@@ -143,7 +207,7 @@ export default function MarketplacePage() {
                       <p className="text-[10px] font-bold uppercase tracking-widest text-[oklch(var(--text-muted))]">{asset.name}</p>
                     </div>
                   </div>
-                  <div className={`px-2 py-1 text-[8px] font-black uppercase tracking-[0.2em] border ${
+                  <div className={`px-2 py-1 text-[10px] font-bold uppercase tracking-widest border ${
                     asset.sentiment === 'BULLISH' ? 'text-[oklch(var(--status-success))] border-[oklch(var(--status-success)/0.3)] bg-[oklch(var(--status-success)/0.05)]' :
                     asset.sentiment === 'BEARISH' ? 'text-[oklch(var(--status-error))] border-[oklch(var(--status-error)/0.3)] bg-[oklch(var(--status-error)/0.05)]' :
                     'text-[oklch(var(--text-muted))] border-[oklch(var(--border-subtle))] bg-[oklch(var(--bg-main))]'
@@ -168,11 +232,13 @@ export default function MarketplacePage() {
                 <div className="grid grid-cols-2 gap-3">
                   <Button
                     variant="ghost"
+                    onClick={() => { setSelectedAsset({ ...asset, price: asset.currentPrice }); setIsTradeOpen(false); /* placeholder for details */ }}
                     className="w-full border-[oklch(var(--border-subtle))] uppercase text-[10px] font-black tracking-widest h-12 hover:bg-[oklch(var(--bg-main))]"
                   >
                     Details <Info size={12} className="ml-2" />
                   </Button>
                   <Button
+                    onClick={() => { setSelectedAsset({ ...asset, price: asset.currentPrice }); setIsTradeOpen(true); }}
                     className="w-full bg-[oklch(var(--accent-brand))] text-black uppercase text-[10px] font-black tracking-widest h-12 hover:bg-white hov-scale"
                   >
                     Quick Trade <ShoppingCart size={12} className="ml-2" />
@@ -186,13 +252,19 @@ export default function MarketplacePage() {
         {/* Info Box */}
         <div className="p-8 border-2 border-dashed border-[oklch(var(--border-subtle))] flex flex-col items-center text-center max-w-2xl mx-auto">
           <Zap className="text-[oklch(var(--accent-brand))] mb-4" size={32} />
-          <h2 className="text-xl font-black uppercase tracking-tighter mb-2 italic">Institutional Grade Liquidity</h2>
-          <p className="text-xs text-[oklch(var(--text-muted))] font-medium uppercase tracking-widest leading-relaxed">
-            All trades are executed through the Hackanomics Real-Time Engine (HRTE).
-            Latency is minimized via redundant mesh networking and zero-knowledge trade validation.
+          <h2 className="text-xl font-black uppercase tracking-tighter mb-2">Real-Time Trade Execution</h2>
+          <p className="text-sm text-[oklch(var(--text-muted))] font-medium leading-relaxed">
+            All trades are processed instantly through the Hackanomics simulation engine and reflected in your portfolio at the end of each round.
           </p>
         </div>
       </div>
+
+      <TradeDialog 
+        isOpen={isTradeOpen}
+        onClose={() => setIsTradeOpen(false)}
+        asset={selectedAsset}
+        onExecute={handleTrade}
+      />
     </DashboardLayout>
   );
 }
