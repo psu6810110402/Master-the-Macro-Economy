@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
+import { EASE_SPRING } from '@/lib/motion';
 import {
   ArrowRight, Shield, TrendingUp, Users, Activity,
   Zap, BarChart3, Cpu, Bot, ChevronRight
@@ -56,15 +57,15 @@ const stagger = {
 };
 const fadeUp = {
   hidden: { opacity: 0, y: 28 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] } },
+  show: { opacity: 1, y: 0, transition: { duration: 0.7, ease: EASE_SPRING } },
 };
 const fadeLeft = {
   hidden: { opacity: 0, x: -28 },
-  show: { opacity: 1, x: 0, transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] } },
+  show: { opacity: 1, x: 0, transition: { duration: 0.7, ease: EASE_SPRING } },
 };
 const fadeRight = {
   hidden: { opacity: 0, x: 28 },
-  show: { opacity: 1, x: 0, transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] } },
+  show: { opacity: 1, x: 0, transition: { duration: 0.7, ease: EASE_SPRING } },
 };
 
 // ─── PAGE ─────────────────────────────────────────────────────────────────

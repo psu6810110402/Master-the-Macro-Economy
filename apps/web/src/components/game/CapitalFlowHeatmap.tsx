@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
+import { EASE_SPRING_SOFT } from '@/lib/motion';
 
 interface AllocationData {
   asset: string;
@@ -69,7 +70,7 @@ export default function CapitalFlowHeatmap({ players, className = '' }: CapitalF
             key={s.asset}
             initial={{ width: 0 }}
             animate={{ width: `${s.percentage}%` }}
-            transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.8, ease: EASE_SPRING_SOFT }}
             className="h-full relative group"
             style={{ backgroundColor: s.color }}
           >
