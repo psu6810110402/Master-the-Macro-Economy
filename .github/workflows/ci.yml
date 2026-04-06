@@ -6,6 +6,14 @@ on:
   pull_request:
     branches: [main]
 
+# Dummy DB URLs used only for prisma generate/validate — no real connection needed
+env:
+  DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+  DIRECT_URL: postgresql://ci:ci@localhost:5432/ci
+  NEXT_PUBLIC_API_URL: http://localhost:3001
+  NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+
 jobs:
   # ─── TYPE CHECK ────────────────────────────────────────────────────────────
   type-check:
@@ -36,10 +44,6 @@ jobs:
     name: Build Web (Next.js)
     runs-on: ubuntu-latest
     needs: type-check
-    env:
-      NEXT_PUBLIC_API_URL: http://localhost:3001
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co' }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -55,9 +59,7 @@ jobs:
         run: npx prisma generate --schema=packages/database/prisma/schema.prisma
 
       - name: Build web
-        run: node_modules/.bin/next build apps/web --no-lint
-        # Falls back to direct path if turbo not available
-        continue-on-error: false
+        run: cd apps/web && npx next build
 
   # ─── BUILD API ─────────────────────────────────────────────────────────────
   build-api:
