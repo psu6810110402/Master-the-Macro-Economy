@@ -6,6 +6,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthModule } from './modules/auth/auth.module';
 import { SessionServerlessModule } from './modules/session/session-serverless.module';
@@ -24,6 +25,7 @@ import { HealthModule } from './modules/health/health.module';
       isGlobal: true,
       envFilePath: '../../.env',
     }),
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60000, limit: 120 },
       { name: 'auth', ttl: 60000, limit: 10 },
