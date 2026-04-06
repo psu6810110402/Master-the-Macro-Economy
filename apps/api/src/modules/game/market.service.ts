@@ -69,25 +69,37 @@ export class MarketService {
     const newPrices: Record<string, number> = {};
     const assets = await prisma.asset.findMany({ where: { isActive: true } });
 
-    // 3. Calculate next price for each asset
+    // 3. Batch-fetch all asset sensitivities in one query (avoids N+1)
+    const sensitivities = await this.macroEngine.getAllSensitivities();
+
+    const priceRecords: {
+      assetId: string;
+      price: number;
+      delta: number;
+      sessionId: string;
+      roundNumber: number;
+    }[] = [];
+
+    // 4. Calculate next price for each asset
     for (const asset of assets) {
       const currentPrice = state.assetPrices[asset.symbol] || this.getBasePrice(asset.symbol);
-      
-      const sensitivity = this.macroEngine.getSensitivity(asset.symbol, asset.type);
-      
+
+      const sensitivity = sensitivities.get(asset.symbol)
+        ?? this.macroEngine.getSensitivity(asset.symbol, asset.type);
+
       const { nextPrice, delta } = this.macroEngine.calculateNextPrice(
         currentPrice,
         sensitivity,
         macro.interestRate,
         macro.inflation,
         macro.gdpGrowth,
-        macro.volatility
+        macro.volatility,
       );
 
       let finalizedPrice = nextPrice;
       let finalizedDelta = delta;
 
-      // 4. Apply Black Swan shock if applicable
+      // 5. Apply Black Swan shock if applicable
       if (activeBlackSwan) {
         const assetClass = this.mapAssetToClass(asset.symbol, asset.type);
         const shock = activeBlackSwan.shocks[assetClass as AssetClass];
@@ -99,19 +111,21 @@ export class MarketService {
 
       newPrices[asset.symbol] = Math.max(0.01, finalizedPrice);
 
-      this.logger.debug(`[Market] ${asset.symbol}: ${currentPrice.toFixed(2)} -> ${newPrices[asset.symbol].toFixed(2)} (${finalizedDelta.toFixed(2)}%)`);
+      this.logger.debug(
+        `[Market] ${asset.symbol}: ${currentPrice.toFixed(2)} -> ${newPrices[asset.symbol].toFixed(2)} (${finalizedDelta.toFixed(2)}%)`,
+      );
 
-      // 5. Log the price change to DB
-      await prisma.assetPrice.create({
-        data: {
-          assetId: asset.id,
-          price: newPrices[asset.symbol],
-          delta: finalizedDelta,
-          sessionId,
-          roundNumber: currentRound,
-        },
+      priceRecords.push({
+        assetId: asset.id,
+        price: newPrices[asset.symbol],
+        delta: finalizedDelta,
+        sessionId,
+        roundNumber: currentRound,
       });
     }
+
+    // 6. Batch-insert all price records in one query (avoids N+1)
+    await prisma.assetPrice.createMany({ data: priceRecords });
 
     // 6. Update engine state
     engine.updatePrices(newPrices);

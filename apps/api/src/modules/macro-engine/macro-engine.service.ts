@@ -21,8 +21,33 @@ export class MacroEngineService {
   };
 
   /**
-   * DB-first sensitivity lookup: reads per-asset values from the Asset table.
-   * Falls back to type-based defaults if DB values are all zero.
+   * Batch DB lookup: fetches all active asset sensitivities in one query.
+   * Falls back to type-based defaults for assets with all-zero sensitivities.
+   * Use this in hot paths (e.g. market update loop) to avoid N+1 queries.
+   */
+  public async getAllSensitivities(): Promise<Map<string, AssetSensitivity>> {
+    const result = new Map<string, AssetSensitivity>();
+    try {
+      const assets = await prisma.asset.findMany({ where: { isActive: true } });
+      for (const asset of assets) {
+        if (asset.irSensitivity !== 0 || asset.infSensitivity !== 0 || asset.gdpSensitivity !== 0) {
+          result.set(asset.symbol, {
+            r: asset.irSensitivity,
+            pi: asset.infSensitivity,
+            g: asset.gdpSensitivity,
+          });
+        } else {
+          result.set(asset.symbol, this.typeFallback[asset.type] ?? this.typeFallback['STOCK']);
+        }
+      }
+    } catch (err) {
+      this.logger.warn('Batch sensitivity lookup failed, caller should use type-based fallback');
+    }
+    return result;
+  }
+
+  /**
+   * Single-asset DB lookup. Prefer getAllSensitivities() when updating multiple assets.
    */
   public async getSensitivityFromDB(symbol: string, type: string): Promise<AssetSensitivity> {
     try {
@@ -37,12 +62,12 @@ export class MacroEngineService {
     } catch (err) {
       this.logger.warn(`DB sensitivity lookup failed for ${symbol}, using type fallback`);
     }
-    return this.typeFallback[type] || this.typeFallback['STOCK'];
+    return this.typeFallback[type] ?? this.typeFallback['STOCK'];
   }
 
   /** Sync fallback — uses type-based defaults only (for callers that can't await) */
   public getSensitivity(_symbol: string, type: string): AssetSensitivity {
-    return this.typeFallback[type] || this.typeFallback['STOCK'];
+    return this.typeFallback[type] ?? this.typeFallback['STOCK'];
   }
 
   /**

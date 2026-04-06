@@ -78,9 +78,8 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
-    const passwordHash = await bcrypt.hash(dto.password, 10);
-    
-    // Validate incoming authentic Supabase JWT sync claim, otherwise generate compliant UUID
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+
     const validatedSupabaseId = (dto as any).supabaseId || randomUUID();
 
     const user = await prisma.user.create({
@@ -90,9 +89,8 @@ export class AuthService {
         firstName: dto.firstName,
         lastName: dto.lastName,
         supabaseId: validatedSupabaseId,
-        role: dto.email.includes('admin') || dto.email.includes('facilitator') 
-          ? UserRole.ADMIN 
-          : (dto.role as UserRole) || UserRole.PLAYER,
+        // Only allow PLAYER role on self-registration; role elevation done by admins separately
+        role: UserRole.PLAYER,
       },
     });
 
