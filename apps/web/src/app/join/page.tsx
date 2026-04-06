@@ -8,6 +8,7 @@ import { api, ApiError } from '@/lib/api';
 import { ChevronRight, Loader2, AlertCircle } from 'lucide-react';
 
 import { useSession } from '@/context/SessionContext';
+import { EASE_SPRING } from '@/lib/motion';
 
 export default function JoinPage() {
   const { setSessionId, setRole } = useSession();
@@ -50,7 +51,7 @@ export default function JoinPage() {
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ duration: 0.8, ease: EASE_SPRING }}
         className="w-full max-w-md z-10"
       >
         <div className="text-center mb-12">

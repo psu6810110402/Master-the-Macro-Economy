@@ -9,6 +9,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useSession } from '@/context/SessionContext';
 import { Suspense } from 'react';
+import { EASE_SPRING } from '@/lib/motion';
 
 // ─── MARKET SIDEBAR DATA ────────────────────────────────────────────────────
 
@@ -83,7 +84,7 @@ function LoginContent() {
       <motion.aside
         initial={{ opacity: 0, x: -24 }}
         animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ duration: 0.6, ease: EASE_SPRING }}
         className="hidden lg:flex flex-col w-[420px] shrink-0 border-r border-[oklch(var(--border-subtle))] p-12 bg-[oklch(var(--bg-secondary)/0.4)]"
       >
         {/* Logo */}
@@ -134,7 +135,7 @@ function LoginContent() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1], delay: 0.1 }}
+          transition={{ duration: 0.5, ease: EASE_SPRING, delay: 0.1 }}
           className="w-full max-w-sm"
         >
           {/* Mobile logo */}

@@ -11,6 +11,7 @@ import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useSession } from '@/context/SessionContext';
+import { EASE_SPRING } from '@/lib/motion';
 
 const ROLE_OPTIONS = [
   {
@@ -75,7 +76,7 @@ export default function RegisterPage() {
       <motion.div
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ duration: 0.4, ease: EASE_SPRING }}
         className="flex items-center gap-3 mb-12"
       >
         <div className="w-8 h-8 bg-[oklch(var(--accent-brand))] flex items-center justify-center font-black text-sm italic text-black">H</div>
@@ -91,7 +92,7 @@ export default function RegisterPage() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.4, ease: EASE_SPRING }}
             className="w-full max-w-2xl"
           >
             <div className="mb-8 text-center">
@@ -153,7 +154,7 @@ export default function RegisterPage() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.4, ease: EASE_SPRING }}
             className="w-full max-w-sm"
           >
             {/* Step header */}

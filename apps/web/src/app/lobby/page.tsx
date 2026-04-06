@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { EASE_SPRING } from '@/lib/motion';
 import {
   Users, Plus, Key, Globe2, Lock, Loader2, BookOpen, ArrowRight, ChevronDown
 } from 'lucide-react';
@@ -148,7 +149,7 @@ export default function LobbyPage() {
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                  transition={{ duration: 0.25, ease: EASE_SPRING }}
                   onSubmit={handleJoinSession}
                   className="px-6 pb-6 space-y-3 overflow-hidden"
                 >
@@ -216,7 +217,7 @@ export default function LobbyPage() {
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                  transition={{ duration: 0.25, ease: EASE_SPRING }}
                   onSubmit={handleCreateSession}
                   className="px-6 pb-6 space-y-3 overflow-hidden"
                 >

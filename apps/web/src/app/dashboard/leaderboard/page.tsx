@@ -7,6 +7,7 @@ import { Trophy, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api, ApiError } from '@/lib/api';
 import { useSession } from '@/context/SessionContext';
+import { EASE_SPRING } from '@/lib/motion';
 
 interface RankingEntry {
   userId: string;
@@ -69,7 +70,7 @@ export default function LeaderboardPage() {
         <motion.header
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          transition={{ duration: 0.5, ease: EASE_SPRING }}
           className="flex justify-between items-end border-b-2 border-[oklch(var(--border-subtle))] pb-6"
         >
           <div>
