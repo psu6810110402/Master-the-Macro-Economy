@@ -30,10 +30,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
   server!: Server;
 
   private readonly logger = new Logger(GameGateway.name);
-  // Track which session each client belongs to for disconnect handling
   private clientSessions = new Map<string, { sessionId: string; userId: string; displayName: string }>();
-  // Fix #21: Track player activity for auto-kick
   private lastSeen = new Map<string, number>();
+  // WS rate limiting: track last trade:commit timestamp per user per session
+  private tradeRateLimit = new Map<string, number>();
 
   constructor(
     @Inject(forwardRef(() => GameService))
@@ -318,6 +318,14 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     if (!data?.sessionId) {
       return { status: 'error', message: 'Session ID is required' };
     }
+
+    // WebSocket rate limit: max 1 trade:commit per 3 seconds per user
+    const rateLimitKey = `${data.sessionId}:${user.id}`;
+    const lastCommit = this.tradeRateLimit.get(rateLimitKey) ?? 0;
+    if (Date.now() - lastCommit < 3000) {
+      return { status: 'error', message: 'Too many requests. Please wait before committing again.' };
+    }
+    this.tradeRateLimit.set(rateLimitKey, Date.now());
     const engine = await this.gameService.getOrCreateEngine(data.sessionId);
     const state = engine.getState();
 
