@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, UseGuards, HttpCode, HttpStatus, Param, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, HttpCode, HttpStatus, Param, Logger, Optional } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -14,7 +14,7 @@ export class SessionController {
 
   constructor(
     private sessionService: SessionService,
-    private gameGateway: GameGateway,
+    @Optional() private gameGateway: GameGateway | null,
   ) {}
   @Get('facilitator')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -51,7 +51,7 @@ export class SessionController {
     console.log(`[SessionController] startSession REST called for ${id}`);
     const payload = await this.sessionService.startSession(id);
     console.log(`[SessionController] startSession payload round=${(payload as any).round}`);
-    await this.gameGateway.broadcastStartSession(id, payload as any);
+    await this.gameGateway?.broadcastStartSession(id, payload as any);
     console.log(`[SessionController] broadcastStartSession emitted`);
     return payload;
   }
@@ -71,7 +71,7 @@ export class SessionController {
       this.logger.log(`SessionController: nextRound called for ${id}`);
       const payload = await this.sessionService.nextRound(id);
       this.logger.log(`SessionController: nextRound success for ${id}, broadcasting...`);
-      await this.gameGateway.broadcastNextRound(id, payload as any);
+      await this.gameGateway?.broadcastNextRound(id, payload as any);
       return payload;
     } catch (err) {
       this.logger.error(`[SessionController] nextRound error for ${id}`, err);
@@ -86,7 +86,7 @@ export class SessionController {
     this.logger.log(`SessionController: openMarket called for ${id}`);
     const payload = await this.sessionService.openMarket(id);
     this.logger.log(`SessionController: openMarket success for ${id}, broadcasting...`);
-    await this.gameGateway.broadcastOpenMarket(id, payload as any);
+    await this.gameGateway?.broadcastOpenMarket(id, payload as any);
     return payload;
   }
 

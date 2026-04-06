@@ -6,25 +6,24 @@
  * for full real-time game functionality.
  */
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../src/app.module';
+import { AppServerlessModule } from '../src/app-serverless.module';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import { ValidationPipe, BadRequestException, INestApplication } from '@nestjs/common';
-import * as express from 'express';
-import * as cookieParserImport from 'cookie-parser';
+import express from 'express';
+import cookieParser from 'cookie-parser';
 import { GlobalExceptionFilter } from '../src/common/filters/http-exception.filter';
 
-const cookieParser = (cookieParserImport as any).default ?? cookieParserImport;
 const expressApp = express();
 let cachedApp: INestApplication | null = null;
 
 async function bootstrap(): Promise<INestApplication> {
   const app = await NestFactory.create(
-    AppModule,
+    AppServerlessModule,
     new ExpressAdapter(expressApp),
     { logger: ['error', 'warn'] },
   );
 
-  app.use(cookieParser());
+  app.use(cookieParser() as any);
   app.useGlobalFilters(new GlobalExceptionFilter());
   app.useGlobalPipes(
     new ValidationPipe({
