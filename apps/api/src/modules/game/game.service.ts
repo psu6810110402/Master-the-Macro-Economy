@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Inject, Optional, forwardRef } from '@nestjs/common';
 import { GameEngine } from '@hackanomics/engine';
 import { GameState } from '@hackanomics/engine/dist/types/Game';
 import { MarketService } from './market.service';
@@ -96,8 +96,8 @@ export class GameService {
     private scoringService: ScoringService,
     private tradeResolution: TradeResolutionService,
     private blackSwanService: BlackSwanService,
-    @Inject(forwardRef(() => GameGateway))
-    private gameGateway: GameGateway,
+    @Optional() @Inject(forwardRef(() => GameGateway))
+    private gameGateway: GameGateway | null,
   ) {}
 
   public async handleTimerEnd(sessionId: string) {
@@ -108,14 +108,14 @@ export class GameService {
 
     // 2. Force round end on clients
     const engine = await this.getOrCreateEngine(sessionId);
-    this.gameGateway.server.to(sessionId).emit('game:round_end', { 
-       assetPrices: engine.getState().assetPrices 
+    this.gameGateway?.server.to(sessionId).emit('game:round_end', {
+       assetPrices: engine.getState().assetPrices
     });
 
     // 3. Advance round
     try {
       const payload = await this.nextRound(sessionId);
-      await this.gameGateway.broadcastNextRound(sessionId, payload);
+      if (this.gameGateway) await this.gameGateway.broadcastNextRound(sessionId, payload);
     } catch (err) {
       this.logger.error(`Error auto-advancing session ${sessionId}: ${err}`);
     }
@@ -133,7 +133,7 @@ export class GameService {
         const remaining = engine.decrementTimer();
         
         // Emit via Gateway
-        this.gameGateway.server.to(sessionId).emit('game:timer_tick', { secondsLeft: remaining });
+        this.gameGateway?.server.to(sessionId).emit('game:timer_tick', { secondsLeft: remaining });
 
         if (remaining <= 0) {
           this.stopTimer(sessionId);
@@ -787,7 +787,7 @@ Return a valid JSON object where keys are Player IDs and values are their indivi
     }
 
     // Push update to all clients in the session room
-    this.gameGateway.server.to(sessionId).emit('game:ai_analysis_ready', {
+    this.gameGateway?.server.to(sessionId).emit('game:ai_analysis_ready', {
       analyses: playerAnalyses,
     });
     this.logger.log(`AI analysis pushed to session ${sessionId} (${Object.keys(playerAnalyses).length} players)`);
