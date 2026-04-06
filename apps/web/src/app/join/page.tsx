@@ -7,7 +7,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { api, ApiError } from '@/lib/api';
 import { ChevronRight, Loader2, AlertCircle } from 'lucide-react';
 
+import { useSession } from '@/context/SessionContext';
+
 export default function JoinPage() {
+  const { setSessionId, setRole } = useSession();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,10 +28,8 @@ export default function JoinPage() {
         code: code.toUpperCase(),
       });
       
-      // Store current session for the user
-      localStorage.setItem('current_session_id', result.sessionId);
-      
-      // Redirect to dashboard
+      setSessionId(result.sessionId);
+      setRole('PLAYER');
       router.push('/dashboard');
     } catch (err) {
       if (err instanceof ApiError) {
@@ -101,15 +102,15 @@ export default function JoinPage() {
               <Loader2 className="w-6 h-6 animate-spin" />
             ) : (
               <>
-                Join Terminal <ChevronRight className="w-6 h-6" />
+                Join Session <ChevronRight className="w-6 h-6" />
               </>
             )}
           </Button>
         </form>
 
         <div className="mt-12 pt-8 border-t border-[oklch(var(--border-subtle))] text-center">
-          <p className="text-sm text-[oklch(var(--text-muted))] uppercase tracking-widest font-bold">
-            Hackanomics v1.0 // Market Simulation
+          <p className="text-sm text-[oklch(var(--text-muted))] font-medium">
+            Hackanomics — Market Simulation Platform
           </p>
         </div>
       </motion.div>

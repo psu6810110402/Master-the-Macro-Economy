@@ -1,22 +1,22 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaClient } from '@hackanomics/database';
-// @ts-ignore - Prisma types might be out of sync
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { GameSession } from '@hackanomics/database';
 import { GameService } from '../game/game.service';
 import { AuditService } from '../audit/audit.service';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../prisma';
 
 @Injectable()
 export class SessionService {
+  private readonly logger = new Logger(SessionService.name);
   constructor(
     private gameService: GameService,
     private auditService: AuditService,
   ) {}
-  async createSession(facilitatorId: string, name: string, maxPlayers: number, scenarioId?: string): Promise<GameSession> {
+
+  async createSession(facilitatorId: string, name: string, maxPlayers: number, scenarioId?: string, format: string = 'STANDARD'): Promise<GameSession> {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase(); // 6-char code
+    const totalRounds = format === 'SHORT' ? 3 : format === 'FULL' ? 7 : 5;
     
-    return prisma.gameSession.create({
+    const session = await prisma.gameSession.create({
       data: {
         name,
         code,
@@ -24,7 +24,36 @@ export class SessionService {
         status: 'WAITING',
         facilitatorId,
         scenarioId: scenarioId || 'TECH_CRISIS',
+        format,
+        totalRounds
       },
+    });
+
+    this.logger.log(`[Session] Created: ${session.id} (${session.code}) by ${facilitatorId}`);
+    return session;
+  }
+
+  async getSessionsByFacilitator(facilitatorId: string) {
+    return prisma.gameSession.findMany({
+      where: { facilitatorId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        players: {
+          include: {
+            user: { select: { firstName: true, lastName: true } },
+            portfolio: { select: { totalValue: true } },
+          }
+        }
+      }
+    });
+  }
+
+  async getAllSessions() {
+    return prisma.gameSession.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        players: true,
+      }
     });
   }
 
@@ -37,7 +66,6 @@ export class SessionService {
       throw new NotFoundException('Session not found or already started.');
     }
 
-    // Create SessionPlayer (upsert handles rejoins)
     const sessionPlayer = await prisma.sessionPlayer.upsert({
       where: { sessionId_userId: { sessionId: session.id, userId } },
       create: {
@@ -49,7 +77,6 @@ export class SessionService {
       },
     });
 
-    // Create Portfolio if it doesn't exist ($100,000 starting cash)
     const existingPortfolio = await prisma.portfolio.findUnique({
       where: { sessionPlayerId: sessionPlayer.id },
     });
@@ -65,6 +92,7 @@ export class SessionService {
       });
     }
 
+    this.logger.log(`[Session] User ${userId} joined session ${session.code} (ID: ${session.id})`);
     return {
       sessionId: session.id,
       name: session.name,
@@ -88,6 +116,8 @@ export class SessionService {
   }
 
   async endSession(sessionId: string) {
-    return this.gameService.endSession(sessionId);
+    const result = await this.gameService.endSession(sessionId);
+    await this.auditService.anonymizeSessionPlayers(sessionId);
+    return result;
   }
 }

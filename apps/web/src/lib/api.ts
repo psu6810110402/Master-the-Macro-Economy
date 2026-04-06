@@ -4,7 +4,7 @@
  * { statusCode, error, message, details, requestId, timestamp }
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
 
 // ─── Error Class ────────────────────────────────────────────
 
@@ -40,17 +40,10 @@ export async function apiFetch<T>(
     headers.set('Content-Type', 'application/json');
   }
 
-  // Attach auth token if available
-  if (auth && typeof window !== 'undefined') {
-    const token = localStorage.getItem('hackanomics_token');
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`);
-    }
-  }
-
   const res = await fetch(`${API_BASE}/${path}`, {
     ...fetchOptions,
     headers,
+    credentials: 'include', // Send cookies
   });
 
   if (!res.ok) {
@@ -99,6 +92,13 @@ export const api = {
     apiFetch<T>(path, {
       ...opts,
       method: 'PUT',
+      body: body ? JSON.stringify(body) : undefined,
+    }),
+
+  patch: <T>(path: string, body?: unknown, opts?: RequestInit) =>
+    apiFetch<T>(path, {
+      ...opts,
+      method: 'PATCH',
       body: body ? JSON.stringify(body) : undefined,
     }),
 

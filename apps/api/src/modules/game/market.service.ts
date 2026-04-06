@@ -1,10 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { GameEngine, MARKET_EVENTS, SCENARIOS } from '@hackanomics/engine';
-import { AssetType } from '@hackanomics/engine/dist/types/Game';
+import { GameEngine } from '@hackanomics/engine';
+import { MacroEngineService } from '../macro-engine/macro-engine.service';
+import { BlackSwanService, AssetClass } from '../macro-engine/black-swan.service';
+import { prisma } from '../../prisma';
 
 @Injectable()
 export class MarketService {
   private readonly logger = new Logger(MarketService.name);
+
+  constructor(
+    private macroEngine: MacroEngineService,
+    private blackSwan: BlackSwanService,
+  ) {}
 
   // Default base prices per GDD if not in DB
   private readonly basePrices: Record<string, number> = {
@@ -18,46 +25,106 @@ export class MarketService {
     'VNQ': 85,
   };
 
-  /**
-   * Returns the base price for a given symbol, used as fallback.
-   */
   getBasePrice(symbol: string): number {
     return this.basePrices[symbol] || 100;
   }
 
   /**
-   * Updates the game engine with new prices based on the selected Scenario arc.
+   * Updates the game engine with new prices based on advanced Macro Engine logic.
    */
   async updateMarket(engine: GameEngine, assetTypes: Record<string, string>) {
     const state = engine.getState();
-    const scenarioId = state.scenarioId || 'TECH_CRISIS';
-    const currentRound = state.currentRound || 1;
+    const sessionId = state.sessionId;
+    const currentRound = state.currentRound;
 
-    // 1. Find the scenario and the specific event for this round
-    const scenario = SCENARIOS.find(s => s.id === scenarioId) || SCENARIOS[0];
-    
-    // Map round number to event index (Round 1 => index 0)
-    const eventIndex = Math.min(Math.max(0, currentRound - 1), scenario.events.length - 1);
-    const eventId = scenario.events[eventIndex];
-    
-    const event = MARKET_EVENTS.find(e => e.id === eventId);
-    
-    if (!event) {
-      this.logger.error(`Event ${eventId} not found for scenario ${scenario.name}`);
-      return state.assetPrices;
+    if (!sessionId) {
+        this.logger.error('Session ID is missing from engine state.');
+        return state.assetPrices;
     }
 
-    // 2. Apply Event
-    // We pass assetTypes as Record<string, AssetType> and basePrices
-    engine.applyMarketEvent(
-      event.id, 
-      assetTypes as Record<string, any>, 
-      this.basePrices,
-      0.05 // 5% noise factor per GDD
-    );
-    
-    const updatedState = engine.getState();
-    this.logger.log(`Market update (Scenario: ${scenario.name}, Round: ${currentRound}): [${event.id}] - ${event.headline}`);
-    return updatedState.assetPrices;
+    // 1. Get current Macro State
+    let macro = await prisma.macroState.findUnique({
+      where: { sessionId_roundNumber: { sessionId, roundNumber: currentRound } },
+    });
+
+    if (!macro) {
+      this.logger.warn(`No macro state found for session ${sessionId} round ${currentRound}. Creating default.`);
+      macro = await prisma.macroState.create({
+        data: {
+          sessionId,
+          roundNumber: currentRound,
+          interestRate: 2.5,
+          inflation: 3.0,
+          gdpGrowth: 2.8,
+        },
+      });
+    }
+
+    // 2. Determine if a Black Swan occurs
+    let activeBlackSwan = null;
+    if (macro.blackSwanActive && macro.blackSwanEvent) {
+      activeBlackSwan = this.blackSwan.getEventByName(macro.blackSwanEvent);
+    }
+
+    const newPrices: Record<string, number> = {};
+    const assets = await prisma.asset.findMany({ where: { isActive: true } });
+
+    // 3. Calculate next price for each asset
+    for (const asset of assets) {
+      const currentPrice = state.assetPrices[asset.symbol] || this.getBasePrice(asset.symbol);
+      
+      const sensitivity = this.macroEngine.getSensitivity(asset.symbol, asset.type);
+      
+      const { nextPrice, delta } = this.macroEngine.calculateNextPrice(
+        currentPrice,
+        sensitivity,
+        macro.interestRate,
+        macro.inflation,
+        macro.gdpGrowth,
+        macro.volatility
+      );
+
+      let finalizedPrice = nextPrice;
+      let finalizedDelta = delta;
+
+      // 4. Apply Black Swan shock if applicable
+      if (activeBlackSwan) {
+        const assetClass = this.mapAssetToClass(asset.symbol, asset.type);
+        const shock = activeBlackSwan.shocks[assetClass as AssetClass];
+        if (shock) {
+          finalizedPrice = finalizedPrice * (1 + shock);
+          finalizedDelta = ((finalizedPrice - currentPrice) / currentPrice) * 100;
+        }
+      }
+
+      newPrices[asset.symbol] = Math.max(0.01, finalizedPrice);
+
+      this.logger.debug(`[Market] ${asset.symbol}: ${currentPrice.toFixed(2)} -> ${newPrices[asset.symbol].toFixed(2)} (${finalizedDelta.toFixed(2)}%)`);
+
+      // 5. Log the price change to DB
+      await prisma.assetPrice.create({
+        data: {
+          assetId: asset.id,
+          price: newPrices[asset.symbol],
+          delta: finalizedDelta,
+          sessionId,
+          roundNumber: currentRound,
+        },
+      });
+    }
+
+    // 6. Update engine state
+    engine.updatePrices(newPrices);
+    return newPrices;
+  }
+
+  private mapAssetToClass(symbol: string, type: string): AssetClass {
+    if (symbol === 'GOLD' || ['SILVER', 'PLAT', 'COPP'].includes(symbol)) return 'GOLD';
+    if (symbol === 'BTC' || symbol === 'ETH' || ['SOL', 'BNB', 'XRP'].includes(symbol)) return 'CRYPTO';
+    if (type === 'BOND') return 'BOND';
+    if (['AAPL', 'MSFT', 'GOOGL', 'META', 'NVDA', 'TSLA'].includes(symbol)) return 'TECH';
+    if (['CAT', 'GE', 'HON', 'BA', 'XOM', 'CVX', 'OIL'].includes(symbol)) return 'INDUSTRIAL';
+    if (type === 'REAL_ESTATE' || symbol === 'VNQ') return 'CONSUMER';
+    return 'TECH';
   }
 }

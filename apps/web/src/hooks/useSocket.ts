@@ -1,22 +1,23 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { useSession } from '@/context/SessionContext';
 
 export const useSocket = (sessionId?: string) => {
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [lastEvent, setLastEvent] = useState<{ event: string; data: any } | null>(null);
+  const { token } = useSession();
 
   useEffect(() => {
     if (!sessionId) return;
 
-    // In a real app, we'd get the token from a cookie or AuthContext
-    const token = localStorage.getItem('supabase_token'); 
-
-    const socket = io('http://localhost:3001', {
+    const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+    const socket = io(SOCKET_URL, {
       auth: { token },
       transports: ['websocket'],
+      withCredentials: true,
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
@@ -42,11 +43,37 @@ export const useSocket = (sessionId?: string) => {
     });
 
     socket.on('connect_error', (error) => {
-      console.error('Connection error:', error);
+      console.error('WebSocket connection error:', error.message);
+      if (error.message === 'xhr poll error') {
+        console.warn('Is the API server running at', SOCKET_URL, '?');
+      }
     });
 
-    // Central listener for game events
-    const events = ['roundStarted', 'portfolioUpdate', 'marketUpdate', 'tradeAcknowledged', 'leaderboardUpdate'];
+    // Central listener for ALL game events
+    const events = [
+      // Round lifecycle
+      'game:round_start',
+      'game:round_end',
+      'game:timer_tick',
+      // Player state
+      'game:player_ready',
+      'playerJoined',
+      'playerReadyState',
+      'player:news_ack_state',
+      // Market & Trading
+      'marketOpened',
+      'trade:confirmed',
+      'tradeAcknowledged',
+      // Portfolio & Leaderboard
+      'portfolioUpdate',
+      'marketUpdate',
+      'leaderboardUpdate',
+      // Session
+      'sessionEnded',
+      'roster:update',
+      'player:dropped',
+    ];
+
     events.forEach(event => {
       socket.on(event, (data) => {
         setLastEvent({ event, data });
@@ -56,11 +83,11 @@ export const useSocket = (sessionId?: string) => {
     return () => {
       socket.disconnect();
     };
-  }, [sessionId]);
+  }, [sessionId, token]);
 
-  const emit = (event: string, data: any) => {
-    socketRef.current?.emit(event, data);
-  };
+  const emit = useCallback((event: string, data: any, callback?: (response: any) => void) => {
+    socketRef.current?.emit(event, data, callback);
+  }, []);
 
-  return { isConnected, lastEvent, emit };
+  return { isConnected, lastEvent, emit, socket: socketRef };
 };

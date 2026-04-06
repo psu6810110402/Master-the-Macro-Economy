@@ -1,8 +1,9 @@
+import React from 'react';
+
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'ghost';
 }
 
-// A refined, high-impact button that avoids standard generic UI traps
 export const Button: React.FC<ButtonProps> = ({ 
   children, 
   className = '', 
@@ -18,20 +19,18 @@ export const Button: React.FC<ButtonProps> = ({
   return (
     <button
       className={`
-        relative overflow-hidden
+        relative inline-flex items-center justify-center
         px-10 py-4 font-black text-sm uppercase tracking-[0.2em]
-        transition-all duration-300 ease-out-expo
+        transition-all duration-300
         hover:scale-[1.02] active:scale-[0.98]
         disabled:opacity-50 disabled:pointer-events-none
+        cursor-pointer
         ${variantStyles[variant]}
         ${className}
       `}
       {...props}
     >
-      <span className="relative z-10">{children}</span>
-      {variant === 'primary' && (
-        <div className="absolute inset-0 bg-white/10 translate-y-full transition-transform duration-300 ease-out-expo hover:translate-y-0" />
-      )}
+      {children}
     </button>
   );
 };
