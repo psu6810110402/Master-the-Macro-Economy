@@ -455,5 +455,5 @@ Generative AI is used not as a chatbot but as a **batch performance judge** — 
 
 ---
 
-*© 2026 Aphichat Jahyo — Built for Hackonomics 2026*
+*© 2026 Aphichat Jahyo *
 *"The market doesn't care about your feelings. Neither does the AI judge."*
