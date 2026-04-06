@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, UseGuards, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { UserRole } from '@hackanomics/database';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthService } from './auth.service';
@@ -43,6 +44,7 @@ export class AuthController {
     return result;
   }
 
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @Post('register')
   async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.register(dto);
@@ -50,6 +52,7 @@ export class AuthController {
     return result;
   }
 
+  @Throttle({ auth: { ttl: 60000, limit: 10 } })
   @Post('login')
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.login(dto);
