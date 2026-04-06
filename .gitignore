@@ -36,3 +36,7 @@ impeccable.md
 *.pem
 .turbo
 bfg.jar
+
+# Claude Code internal
+.claude/
+.tmp-home/
